@@ -64,11 +64,11 @@
     "@biomejs/biome": "^1.9.4",
     "@opencode-ai/plugin": "^1.14.33",
     "@types/node": "^20.14.0",
-    "@vitest/coverage-v8": "^2.1.0",
-    "tsup": "^8.3.0",
+    "@vitest/coverage-v8": "^4.1.5",
+    "tsup": "^8.5.1",
     "tsx": "^4.21.0",
     "typescript": "^5.6.0",
-    "vitest": "^2.1.0"
+    "vitest": "^4.1.5"
   },
   "engines": {
     "node": ">=20"
@@ -83,5 +83,12 @@
   ],
   "publishConfig": {
     "access": "public"
+  },
+  "pnpm": {
+    "overrides": {
+      "uuid": ">=14.0.0",
+      "vite": ">=6.4.2",
+      "esbuild": ">=0.25.0"
+    }
   }
 }
