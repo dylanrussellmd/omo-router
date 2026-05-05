@@ -507,6 +507,152 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
 
   cli.command("path", "print all paths used by omo-router").action(() => cmdPath(paths));
 
+  cli
+    .command("completion", "print instructions for installing shell autocomplete")
+    .action(() => {
+      log("To install autocomplete for omo-router, run one of the following:\n");
+      log("ZSH:\n  omo-router completion-script zsh > ~/.omo-router-completion.zsh\n  echo 'source ~/.omo-router-completion.zsh' >> ~/.zshrc\n");
+      log("BASH:\n  omo-router completion-script bash > ~/.omo-router-completion.bash\n  echo 'source ~/.omo-router-completion.bash' >> ~/.bashrc\n");
+      log("FISH:\n  omo-router completion-script fish > ~/.config/fish/completions/omo-router.fish\n");
+    });
+
+  cli
+    .command("completion-script <shell>", "Generate the completion script for your shell")
+    .action((shell: string) => {
+      if (shell === "zsh") {
+        log(`
+#compdef omo-router
+#compdef omo
+
+_omo_router() {
+  local -a commands
+  commands=(
+    'init:create state dirs, drop seeds, set premium active, edit opencode.json'
+    'list:list available stacks'
+    'status:print active stack name'
+    'show:print a stack file as pretty JSON'
+    'use:switch active stack'
+    'back:undo the last N switches'
+    'history:list recent switches'
+    'restore:restore from a history entry'
+    'validate:verify model IDs'
+    'add:create a new stack'
+    'rm:delete a stack'
+    'edit:open a stack in $EDITOR'
+    'import:copy file into stacks'
+    'export:copy stack to file'
+    'path:print all paths'
+  )
+
+  if (( CURRENT == 2 )); then
+    _describe -t commands 'commands' commands
+  else
+    local cmd=\${words[2]}
+    case $cmd in
+      show|use|validate|rm|edit|export)
+        local -a stacks
+        # fetch dynamic stacks directly using the completion-resolve command
+        stacks=($(omo-router completion-resolve))
+        _describe -t stacks 'stacks' stacks
+        ;;
+    esac
+  fi
+}
+
+compdef _omo_router omo-router
+compdef _omo_router omo
+        `.trim());
+      } else if (shell === "bash") {
+        log(`
+_omo_router() {
+  local cur prev commands stacks
+  COMPREPLY=()
+  cur="\${COMP_WORDS[COMP_CWORD]}"
+  prev="\${COMP_WORDS[COMP_CWORD-1]}"
+  commands="init list status show use back history restore validate add rm edit import export path completion"
+
+  if [[ \${COMP_CWORD} == 1 ]]; then
+    COMPREPLY=( $(compgen -W "\${commands}" -- \${cur}) )
+    return 0
+  fi
+
+  case "\${prev}" in
+    show|use|validate|rm|edit|export)
+      stacks=$(omo-router completion-resolve 2>/dev/null)
+      COMPREPLY=( $(compgen -W "\${stacks}" -- \${cur}) )
+      ;;
+  esac
+  return 0
+}
+
+complete -F _omo_router omo-router
+complete -F _omo_router omo
+        `.trim());
+      } else if (shell === "fish") {
+        log(`
+function _omo_router_needs_command
+  set cmd (commandline -opc)
+  if test (count $cmd) -eq 1
+    return 0
+  end
+  return 1
+end
+
+function _omo_router_using_command
+  set cmd (commandline -opc)
+  if test (count $cmd) -gt 1
+    if test $cmd[2] = $argv[1]
+      return 0
+    end
+  end
+  return 1
+end
+
+# Commands
+complete -f -c omo-router -n '_omo_router_needs_command' -a init -d 'create state dirs, drop seeds, set premium active, edit opencode.json'
+complete -f -c omo-router -n '_omo_router_needs_command' -a list -d 'list available stacks'
+complete -f -c omo-router -n '_omo_router_needs_command' -a status -d 'print active stack name'
+complete -f -c omo-router -n '_omo_router_needs_command' -a show -d 'print a stack file as pretty JSON'
+complete -f -c omo-router -n '_omo_router_needs_command' -a use -d 'switch active stack'
+complete -f -c omo-router -n '_omo_router_needs_command' -a back -d 'undo the last N switches'
+complete -f -c omo-router -n '_omo_router_needs_command' -a history -d 'list recent switches'
+complete -f -c omo-router -n '_omo_router_needs_command' -a restore -d 'restore from a history entry'
+complete -f -c omo-router -n '_omo_router_needs_command' -a validate -d 'verify model IDs'
+complete -f -c omo-router -n '_omo_router_needs_command' -a add -d 'create a new stack'
+complete -f -c omo-router -n '_omo_router_needs_command' -a rm -d 'delete a stack'
+complete -f -c omo-router -n '_omo_router_needs_command' -a edit -d 'open a stack in $EDITOR'
+complete -f -c omo-router -n '_omo_router_needs_command' -a import -d 'copy file into stacks'
+complete -f -c omo-router -n '_omo_router_needs_command' -a export -d 'copy stack to file'
+complete -f -c omo-router -n '_omo_router_needs_command' -a path -d 'print all paths'
+
+# Dynamic Stack Autocompletion
+complete -f -c omo-router -n '_omo_router_using_command show' -a '(omo-router completion-resolve)'
+complete -f -c omo-router -n '_omo_router_using_command use' -a '(omo-router completion-resolve)'
+complete -f -c omo-router -n '_omo_router_using_command validate' -a '(omo-router completion-resolve)'
+complete -f -c omo-router -n '_omo_router_using_command rm' -a '(omo-router completion-resolve)'
+complete -f -c omo-router -n '_omo_router_using_command edit' -a '(omo-router completion-resolve)'
+complete -f -c omo-router -n '_omo_router_using_command export' -a '(omo-router completion-resolve)'
+
+# Alias omo to omo-router completions
+complete -c omo -w omo-router
+        `.trim());
+      } else {
+        err("Unsupported shell. Supported: bash, zsh, fish");
+        process.exit(1);
+      }
+    });
+
+  cli
+    .command("completion-resolve", "Internal command used by shell autocomplete")
+    .action(async () => {
+      try {
+        const stacks = await listStacks(paths);
+        log(stacks.join("\n"));
+      } catch {
+        // Silently fail during completion
+      }
+    });
+
   cli.help();
   cli.version(VERSION);
 

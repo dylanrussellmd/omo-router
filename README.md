@@ -95,6 +95,10 @@ The plugin exposes five tools the agent (or you, by asking it) can call:
 - **Snapshot-back is on by default.** When you switch from stack `A` to stack `B`, the *current* contents of `oh-my-openagent.json` (which may include migrations or hand-edits) are written back into `stacks/A.json` first. Disable per-call with `--no-snapshot-back`.
 - **Validation is auth-state-dependent.** `omo-router validate` runs `opencode models`, which only lists models reachable through your current auth. If you revoke a key, previously-valid stacks may suddenly be invalid.
 
+## Autocompletions
+
+`omo-router` supports autocompletions for `zsh`, `bash`, and `fish`. To install, run `omo-router completion` and follow the instructions for your shell.
+
 ## Architecture in 60 seconds
 
 ```
