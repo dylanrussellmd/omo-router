@@ -8,11 +8,11 @@
  * what's active.
  */
 
-import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { atomicWriteJson } from "./atomic-write.js";
 import { IOError, ValidationError } from "./errors.js";
-import { StateFileSchema, type StateFile } from "./schema.js";
+import { type StateFile, StateFileSchema } from "./schema.js";
 
 /**
  * Read state.json. Returns `null` if the file doesn't exist (uninitialized).

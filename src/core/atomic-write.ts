@@ -15,9 +15,9 @@
  * `.omotmp-<pid>-<rand>` suffix so concurrent writers don't collide.
  */
 
+import { randomBytes } from "node:crypto";
 import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { randomBytes } from "node:crypto";
 import { IOError } from "./errors.js";
 
 /**

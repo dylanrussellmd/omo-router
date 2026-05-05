@@ -15,26 +15,22 @@
  * readers see consistent state.
  */
 
+import { existsSync } from "node:fs";
 import { copyFile, mkdir, readFile, readdir, unlink } from "node:fs/promises";
 import path from "node:path";
-import { existsSync } from "node:fs";
 import { atomicWriteFile, atomicWriteJson } from "./atomic-write.js";
 import {
   IOError,
+  type OmoError,
   StackNotFoundError,
   UserError,
   ValidationError,
-  type OmoError,
 } from "./errors.js";
 import { appendHistory, readHistoryEntry, trimHistory } from "./history.js";
 import type { OmoPaths } from "./paths.js";
-import {
-  RESTORED_SENTINEL_PREFIX,
-  StackFileSchema,
-  type StackFile,
-} from "./schema.js";
+import { RESTORED_SENTINEL_PREFIX, type StackFile, StackFileSchema } from "./schema.js";
 import { readState, writeState } from "./state.js";
-import { validateStackOrThrow, type ValidateOptions } from "./validator.js";
+import { type ValidateOptions, validateStackOrThrow } from "./validator.js";
 
 /* ------------------------------------------------------------------------- *
  * read-only helpers                                                          *
@@ -161,19 +157,19 @@ export async function switchTo(
   const liveRaw = liveExists ? await readFile(paths.liveConfigPath, "utf8") : "";
 
   // Step 3: history append (snapshot of what we're displacing).
-  const historyId = await appendHistory(
-    paths.historyDir,
-    prevActive ?? "(none)",
-    name,
-    liveRaw,
-  );
+  const historyId = await appendHistory(paths.historyDir, prevActive ?? "(none)", name, liveRaw);
 
   // Step 4: snapshot-back. Only meaningful when:
   //   - we have a prev active stack name on disk, AND
   //   - the prev active is a real stack (not a (restored:...) sentinel), AND
   //   - the live content actually differs from the source stack file.
   let snapshottedFrom: string | null = null;
-  if (snapshotBack && prevActive && !prevActive.startsWith(RESTORED_SENTINEL_PREFIX) && liveExists) {
+  if (
+    snapshotBack &&
+    prevActive &&
+    !prevActive.startsWith(RESTORED_SENTINEL_PREFIX) &&
+    liveExists
+  ) {
     const prevStackFile = stackPath(paths, prevActive);
     if (existsSync(prevStackFile)) {
       const prevRaw = await readFile(prevStackFile, "utf8");
@@ -288,10 +284,7 @@ export interface RestoreResult {
  * surfaces that as "no named stack active" and prompts the user to bind
  * with `use <name>` once they're sure of the contents.
  */
-export async function restoreFromHistory(
-  paths: OmoPaths,
-  id: string,
-): Promise<RestoreResult> {
+export async function restoreFromHistory(paths: OmoPaths, id: string): Promise<RestoreResult> {
   const content = await readHistoryEntry(paths.historyDir, id);
 
   // Snapshot what's about to be displaced first (otherwise we lose it).
@@ -301,12 +294,7 @@ export async function restoreFromHistory(
   const prevState = await readState(paths.statePath);
   const prevActive = prevState?.active ?? "(none)";
   const sentinel = `${RESTORED_SENTINEL_PREFIX}${id})`;
-  const historyId = await appendHistory(
-    paths.historyDir,
-    prevActive,
-    sentinel,
-    liveRaw,
-  );
+  const historyId = await appendHistory(paths.historyDir, prevActive, sentinel, liveRaw);
 
   await atomicWriteFile(paths.liveConfigPath, content);
 
@@ -403,14 +391,13 @@ export async function importStack(
   fromFile: string,
   options: { readonly force?: boolean } = {},
 ): Promise<void> {
-  await addStack(paths, name, { fromFile, ...(options.force !== undefined ? { force: options.force } : {}) });
+  await addStack(paths, name, {
+    fromFile,
+    ...(options.force !== undefined ? { force: options.force } : {}),
+  });
 }
 
-export async function exportStack(
-  paths: OmoPaths,
-  name: string,
-  toFile: string,
-): Promise<void> {
+export async function exportStack(paths: OmoPaths, name: string, toFile: string): Promise<void> {
   const filePath = stackPath(paths, name);
   if (!existsSync(filePath)) {
     throw new StackNotFoundError(name, await listStacks(paths));

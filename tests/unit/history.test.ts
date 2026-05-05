@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { describe, expect, it } from "vitest";
+import { HistoryEntryNotFoundError } from "../../src/core/errors.js";
 import {
   appendHistory,
   listHistory,
@@ -9,7 +10,6 @@ import {
   readHistoryEntry,
   trimHistory,
 } from "../../src/core/history.js";
-import { HistoryEntryNotFoundError } from "../../src/core/errors.js";
 
 function tmp(): string {
   return mkdtempSync(path.join(tmpdir(), "omo-hist-"));
@@ -17,9 +17,7 @@ function tmp(): string {
 
 describe("parseHistoryFilename", () => {
   it("parses well-formed filenames", () => {
-    const r = parseHistoryFilename(
-      "2026-05-04T13-22-01-000Z__premium-to-openrouter-cheap.json",
-    );
+    const r = parseHistoryFilename("2026-05-04T13-22-01-000Z__premium-to-openrouter-cheap.json");
     expect(r).not.toBeNull();
     expect(r?.timestamp).toBe("2026-05-04T13-22-01-000Z");
     expect(r?.fromStack).toBe("premium");
@@ -87,9 +85,7 @@ describe("readHistoryEntry", () => {
   it("throws HistoryEntryNotFoundError for unknown ids", async () => {
     const dir = tmp();
     try {
-      await expect(readHistoryEntry(dir, "nope")).rejects.toBeInstanceOf(
-        HistoryEntryNotFoundError,
-      );
+      await expect(readHistoryEntry(dir, "nope")).rejects.toBeInstanceOf(HistoryEntryNotFoundError);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

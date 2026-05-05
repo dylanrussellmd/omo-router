@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { StackFileSchema, OpencodeJsonSchema } from "../../src/core/schema.js";
+import { OpencodeJsonSchema, StackFileSchema } from "../../src/core/schema.js";
 
 describe("StackFileSchema", () => {
   it("rejects empty objects (no agents AND no categories)", () => {

@@ -1,8 +1,10 @@
-import { describe, expect, it, beforeEach } from "vitest";
-import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { resolvePaths, type OmoPaths } from "../../src/core/paths.js";
+import { beforeEach, describe, expect, it } from "vitest";
+import { ModelValidationError, StackNotFoundError, UserError } from "../../src/core/errors.js";
+import { listHistory } from "../../src/core/history.js";
+import { type OmoPaths, resolvePaths } from "../../src/core/paths.js";
 import {
   addStack,
   back,
@@ -15,13 +17,7 @@ import {
   restoreFromHistory,
   switchTo,
 } from "../../src/core/stack-manager.js";
-import { listHistory } from "../../src/core/history.js";
 import { readState } from "../../src/core/state.js";
-import {
-  ModelValidationError,
-  StackNotFoundError,
-  UserError,
-} from "../../src/core/errors.js";
 
 const ALWAYS_VALID = async () =>
   // canned model list big enough to satisfy any seed-style stack used in tests
@@ -52,8 +48,6 @@ const CHEAP = {
     quick: { model: "openrouter/google/gemini-2.5-flash" },
   },
 };
-
-let paths: OmoPaths;
 
 function setup(): { paths: OmoPaths; cleanup: () => void } {
   const omoHome = mkdtempSync(path.join(tmpdir(), "omo-mgr-"));

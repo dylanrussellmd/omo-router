@@ -45,7 +45,9 @@
     "@opencode-ai/plugin": "^1.14.0"
   },
   "peerDependenciesMeta": {
-    "@opencode-ai/plugin": { "optional": true }
+    "@opencode-ai/plugin": {
+      "optional": true
+    }
   },
   "dependencies": {
     "cac": "^6.7.14",
@@ -57,6 +59,7 @@
     "@types/node": "^20.14.0",
     "@vitest/coverage-v8": "^2.1.0",
     "tsup": "^8.3.0",
+    "tsx": "^4.21.0",
     "typescript": "^5.6.0",
     "vitest": "^2.1.0"
   },

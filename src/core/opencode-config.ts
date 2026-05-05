@@ -12,11 +12,11 @@
  * leaves it unchanged. We always back up before writing — see `backups.ts`.
  */
 
-import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { atomicWriteJson } from "./atomic-write.js";
 import { IOError, ValidationError } from "./errors.js";
-import { OpencodeJsonSchema, type OpencodeJson } from "./schema.js";
+import { type OpencodeJson, OpencodeJsonSchema } from "./schema.js";
 
 export const PLUGIN_NPM_NAME = "@dylanrussell/omo-router";
 /** What we add to opencode.json's plugin[] — name@latest for auto-updates. */
@@ -29,10 +29,7 @@ export async function readOpencodeJson(opencodeJsonPath: string): Promise<Openco
   try {
     raw = await readFile(opencodeJsonPath, "utf8");
   } catch (cause) {
-    throw new IOError(
-      `Failed to read ${opencodeJsonPath}: ${(cause as Error).message}`,
-      cause,
-    );
+    throw new IOError(`Failed to read ${opencodeJsonPath}: ${(cause as Error).message}`, cause);
   }
   let parsed: unknown;
   try {
@@ -70,7 +67,9 @@ export function ensurePluginEntry(
   entry: string = PLUGIN_REGISTRY_ENTRY,
 ): { config: OpencodeJson; result: EnsurePluginEntryResult } {
   const existing = config.plugin ?? [];
-  const already = existing.some((p) => p === entry || stripVersionTag(p) === stripVersionTag(entry));
+  const already = existing.some(
+    (p) => p === entry || stripVersionTag(p) === stripVersionTag(entry),
+  );
   if (already) {
     return { config, result: { added: false, plugin: existing } };
   }

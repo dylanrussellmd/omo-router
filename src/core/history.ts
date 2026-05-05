@@ -15,8 +15,8 @@
 import { mkdir, readFile, readdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import { atomicWriteFile } from "./atomic-write.js";
-import { HistoryEntryNotFoundError, IOError } from "./errors.js";
 import { timestampStamp } from "./backups.js";
+import { HistoryEntryNotFoundError, IOError } from "./errors.js";
 
 export interface HistoryEntry {
   /** Filename without `.json` extension. Sortable: lex order = chronological. */

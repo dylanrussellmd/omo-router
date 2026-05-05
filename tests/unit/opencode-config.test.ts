@@ -1,11 +1,11 @@
-import { describe, expect, it } from "vitest";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { describe, expect, it } from "vitest";
 import {
+  PLUGIN_REGISTRY_ENTRY,
   ensureOpenrouterModels,
   ensurePluginEntry,
-  PLUGIN_REGISTRY_ENTRY,
   readOpencodeJson,
   writeOpencodeJson,
 } from "../../src/core/opencode-config.js";

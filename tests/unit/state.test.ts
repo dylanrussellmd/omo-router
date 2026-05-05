@@ -1,10 +1,10 @@
-import { describe, expect, it } from "vitest";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { readState, writeState } from "../../src/core/state.js";
+import { describe, expect, it } from "vitest";
 import { ValidationError } from "../../src/core/errors.js";
 import type { StateFile } from "../../src/core/schema.js";
+import { readState, writeState } from "../../src/core/state.js";
 
 function tmp(): string {
   return mkdtempSync(path.join(tmpdir(), "omo-state-"));

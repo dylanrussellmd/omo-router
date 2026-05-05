@@ -6,9 +6,9 @@
  * so files dropped here are recognizable to the user and to that tool.
  */
 
+import { existsSync } from "node:fs";
 import { copyFile, mkdir } from "node:fs/promises";
 import path from "node:path";
-import { existsSync } from "node:fs";
 import { IOError } from "./errors.js";
 
 /** Format: `2026-05-04T13-22-01-000Z` — ISO with `:` and `.` swapped to `-` so it's path-safe. */

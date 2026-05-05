@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
-import path from "node:path";
 import { homedir } from "node:os";
+import path from "node:path";
+import { describe, expect, it } from "vitest";
 import { resolvePaths } from "../../src/core/paths.js";
 
 describe("resolvePaths", () => {

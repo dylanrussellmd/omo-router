@@ -51,9 +51,7 @@ export type StateFile = z.infer<typeof StateFileSchema>;
 export const ModelEntrySchema = z
   .object({
     model: z.string().min(1),
-    fallback_models: z
-      .array(z.object({ model: z.string().min(1) }).passthrough())
-      .optional(),
+    fallback_models: z.array(z.object({ model: z.string().min(1) }).passthrough()).optional(),
   })
   .passthrough();
 

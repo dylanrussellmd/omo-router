@@ -1,0 +1,55 @@
+{
+  "$schema": "https://raw.githubusercontent.com/code-yeongyu/oh-my-openagent/dev/assets/oh-my-opencode.schema.json",
+  "agents": {
+    "sisyphus": {
+      "model": "google/gemini-3.1-pro-preview",
+      "fallback_models": [{ "model": "google/gemini-2.5-flash" }]
+    },
+    "oracle": {
+      "model": "google/gemini-3.1-pro-preview",
+      "fallback_models": [{ "model": "openrouter/openai/gpt-oss-120b:free" }]
+    },
+    "explore": { "model": "google/gemini-2.5-flash" },
+    "multimodal-looker": { "model": "google/gemini-2.5-flash" },
+    "prometheus": {
+      "model": "google/gemini-3.1-pro-preview",
+      "fallback_models": [{ "model": "google/gemini-2.5-flash" }]
+    },
+    "metis": {
+      "model": "google/gemini-3.1-pro-preview",
+      "fallback_models": [{ "model": "google/gemini-2.5-flash" }]
+    },
+    "momus": {
+      "model": "google/gemini-3.1-pro-preview",
+      "fallback_models": [{ "model": "openrouter/openai/gpt-oss-120b:free" }]
+    },
+    "atlas": { "model": "google/gemini-2.5-flash" },
+    "sisyphus-junior": { "model": "google/gemini-2.5-flash" },
+    "hephaestus": {
+      "model": "openrouter/openai/gpt-oss-120b:free",
+      "fallback_models": [{ "model": "google/gemini-2.5-flash" }]
+    }
+  },
+  "categories": {
+    "visual-engineering": {
+      "model": "google/gemini-3.1-pro-preview",
+      "fallback_models": [{ "model": "google/gemini-2.5-flash" }]
+    },
+    "ultrabrain": {
+      "model": "google/gemini-3.1-pro-preview",
+      "fallback_models": [{ "model": "openrouter/openai/gpt-oss-120b:free" }]
+    },
+    "deep": {
+      "model": "google/gemini-3.1-pro-preview",
+      "fallback_models": [{ "model": "openrouter/openai/gpt-oss-120b:free" }]
+    },
+    "artistry": {
+      "model": "google/gemini-3.1-pro-preview",
+      "fallback_models": [{ "model": "google/gemini-2.5-flash" }]
+    },
+    "quick": { "model": "google/gemini-2.5-flash" },
+    "unspecified-low": { "model": "google/gemini-2.5-flash" },
+    "unspecified-high": { "model": "google/gemini-2.5-flash" },
+    "writing": { "model": "google/gemini-2.5-flash" }
+  }
+}

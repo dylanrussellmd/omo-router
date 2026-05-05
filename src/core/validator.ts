@@ -15,7 +15,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { ModelValidationError } from "./errors.js";
-import type { StackFile, ModelEntry } from "./schema.js";
+import type { ModelEntry, StackFile } from "./schema.js";
 
 const execFileAsync = promisify(execFile);
 
