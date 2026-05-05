@@ -1,8 +1,18 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { OmoRouterPlugin } from "../../src/plugin.js";
+
+const FAKE_OPENCODE_MODELS = [
+  "anthropic/claude-opus-4-7",
+  "anthropic/claude-sonnet-4-6",
+  "openrouter/openai/gpt-5.4",
+  "openrouter/google/gemini-2.5-flash",
+  "google/gemini-3-flash-preview",
+  "google/gemini-3.1-pro-preview",
+  "google/gemini-2.5-flash",
+];
 
 const PREMIUM = {
   agents: { sisyphus: { model: "anthropic/claude-opus-4-7" } },
@@ -32,8 +42,29 @@ function setup(): {
 } {
   const omoHome = mkdtempSync(path.join(tmpdir(), "omo-plugin-"));
   const fakeXdg = mkdtempSync(path.join(tmpdir(), "omo-plugin-xdg-"));
+  const binDir = mkdtempSync(path.join(tmpdir(), "omo-plugin-bin-"));
+  const prevPath = process.env.PATH ?? "";
   process.env.OMO_ROUTER_HOME = omoHome;
   process.env.XDG_CONFIG_HOME = fakeXdg;
+  // Stub `opencode` so the validator's default `execFile("opencode", ["models"])`
+  // resolves deterministically in any environment, including CI.
+  const stubScript = path.join(binDir, "opencode");
+  writeFileSync(
+    stubScript,
+    `#!/usr/bin/env bash
+if [ "$1" = "models" ]; then
+  cat <<'EOF'
+${FAKE_OPENCODE_MODELS.join("\n")}
+EOF
+  exit 0
+fi
+exit 0
+`,
+    { mode: 0o755 },
+  );
+  chmodSync(stubScript, 0o755);
+  process.env.PATH = `${binDir}:${prevPath}`;
+
   mkdirSync(path.join(fakeXdg, "opencode"), { recursive: true });
   const liveConfigPath = path.join(fakeXdg, "opencode", "oh-my-openagent.json");
   const statePath = path.join(omoHome, "state.json");
@@ -57,8 +88,10 @@ function setup(): {
     cleanup: () => {
       process.env.OMO_ROUTER_HOME = undefined;
       process.env.XDG_CONFIG_HOME = undefined;
+      process.env.PATH = prevPath;
       rmSync(omoHome, { recursive: true, force: true });
       rmSync(fakeXdg, { recursive: true, force: true });
+      rmSync(binDir, { recursive: true, force: true });
     },
   };
 }
