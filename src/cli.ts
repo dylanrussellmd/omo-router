@@ -507,20 +507,25 @@ async function main(argv: ReadonlyArray<string>): Promise<number> {
 
   cli.command("path", "print all paths used by omo-router").action(() => cmdPath(paths));
 
-  cli
-    .command("completion", "print instructions for installing shell autocomplete")
-    .action(() => {
-      log("To install autocomplete for omo-router, run one of the following:\n");
-      log("ZSH:\n  omo-router completion-script zsh > ~/.omo-router-completion.zsh\n  echo 'source ~/.omo-router-completion.zsh' >> ~/.zshrc\n");
-      log("BASH:\n  omo-router completion-script bash > ~/.omo-router-completion.bash\n  echo 'source ~/.omo-router-completion.bash' >> ~/.bashrc\n");
-      log("FISH:\n  omo-router completion-script fish > ~/.config/fish/completions/omo-router.fish\n");
-    });
+  cli.command("completion", "print instructions for installing shell autocomplete").action(() => {
+    log("To install autocomplete for omo-router, run one of the following:\n");
+    log(
+      "ZSH:\n  omo-router completion-script zsh > ~/.omo-router-completion.zsh\n  echo 'source ~/.omo-router-completion.zsh' >> ~/.zshrc\n",
+    );
+    log(
+      "BASH:\n  omo-router completion-script bash > ~/.omo-router-completion.bash\n  echo 'source ~/.omo-router-completion.bash' >> ~/.bashrc\n",
+    );
+    log(
+      "FISH:\n  omo-router completion-script fish > ~/.config/fish/completions/omo-router.fish\n",
+    );
+  });
 
   cli
     .command("completion-script <shell>", "Generate the completion script for your shell")
     .action((shell: string) => {
       if (shell === "zsh") {
-        log(`
+        log(
+          `
 #compdef omo-router
 #compdef omo
 
@@ -561,9 +566,11 @@ _omo_router() {
 
 compdef _omo_router omo-router
 compdef _omo_router omo
-        `.trim());
+        `.trim(),
+        );
       } else if (shell === "bash") {
-        log(`
+        log(
+          `
 _omo_router() {
   local cur prev commands stacks
   COMPREPLY=()
@@ -587,9 +594,11 @@ _omo_router() {
 
 complete -F _omo_router omo-router
 complete -F _omo_router omo
-        `.trim());
+        `.trim(),
+        );
       } else if (shell === "fish") {
-        log(`
+        log(
+          `
 function _omo_router_needs_command
   set cmd (commandline -opc)
   if test (count $cmd) -eq 1
@@ -635,7 +644,8 @@ complete -f -c omo-router -n '_omo_router_using_command export' -a '(omo-router 
 
 # Alias omo to omo-router completions
 complete -c omo -w omo-router
-        `.trim());
+        `.trim(),
+        );
       } else {
         err("Unsupported shell. Supported: bash, zsh, fish");
         process.exit(1);
