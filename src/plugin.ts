@@ -23,8 +23,9 @@
  */
 
 import { type Plugin, tool } from "@opencode-ai/plugin";
+import { resolvePathsWithConfig } from "./core/config.js";
 import { OmoError } from "./core/errors.js";
-import { type OmoPaths, resolvePaths } from "./core/paths.js";
+import type { OmoPaths } from "./core/paths.js";
 import {
   back as backCore,
   getActiveStackName,
@@ -105,7 +106,7 @@ function errOut(e: unknown): { output: string; metadata: { error: string } } {
  * ------------------------------------------------------------------------- */
 
 export const OmoRouterPlugin: Plugin = async (ctx) => {
-  const paths: OmoPaths = resolvePaths();
+  const paths: OmoPaths = await resolvePathsWithConfig();
   const client = ctx.client as unknown as PluginClientLike;
 
   // Init log. Best-effort — never throw from plugin init.

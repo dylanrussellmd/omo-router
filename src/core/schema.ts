@@ -74,6 +74,18 @@ export const StackFileSchema = z
 
 export type StackFile = z.infer<typeof StackFileSchema>;
 
+/* ------------------------------------------------------------------------- *
+ * config.json (omo-router's own settings — strict, fail closed)              *
+ * ------------------------------------------------------------------------- */
+
+export const ConfigFileSchema = z
+  .object({
+    liveConfigPath: z.string().min(1).optional(),
+  })
+  .strict();
+
+export type ConfigFile = z.infer<typeof ConfigFileSchema>;
+
 /**
  * Loose schema for `opencode.json`. We only read/edit `plugin` (array) and
  * `provider.openrouter.models` (record). Everything else is preserved.

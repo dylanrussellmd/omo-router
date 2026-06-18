@@ -9,6 +9,14 @@
  *      Default: `${opencodeConfigDir}/omo-router`.
  *      Override: `OMO_ROUTER_HOME` env var (used by tests to redirect to tmp).
  *
+ *   3. `liveConfigPath` — the active `oh-my-openagent.json` that omo-router
+ *      writes on every switch.
+ *      Default: `${opencodeConfigDir}/oh-my-openagent.json`.
+ *      Override: `OMO_ROUTER_LIVE_CONFIG` env var. Use this when the live config
+ *      is managed elsewhere (e.g. a dotfiles dir that opencode symlinks back
+ *      into `~/.config/opencode`). Writing through the override keeps the
+ *      symlink intact instead of `rename(2)` clobbering it into a real file.
+ *
  * Tests rely on `OMO_ROUTER_HOME` to fully isolate from the user's real config.
  * Production code relies on the default. Never hard-code paths elsewhere — go
  * through `resolvePaths()` so the override always wins.
@@ -22,7 +30,11 @@ export interface OmoPaths {
   readonly opencodeConfigDir: string;
   /** `${opencodeConfigDir}/opencode.json`. */
   readonly opencodeJsonPath: string;
-  /** `${opencodeConfigDir}/oh-my-openagent.json` — the live router target. */
+  /**
+   * The live router target — the `oh-my-openagent.json` written on every
+   * switch. Defaults to `${opencodeConfigDir}/oh-my-openagent.json`; override
+   * with `OMO_ROUTER_LIVE_CONFIG` (or `options.liveConfigPath`).
+   */
   readonly liveConfigPath: string;
   /** Directory `${opencodeConfigDir}/.backups` for installer-style backups. */
   readonly opencodeBackupsDir: string;
@@ -46,6 +58,11 @@ export interface ResolvePathsOptions {
   /** Direct override for `omoHome`. Wins over both default and OMO_ROUTER_HOME. */
   readonly omoHome?: string;
   /**
+   * Direct override for `liveConfigPath`. Wins over both the default and
+   * `OMO_ROUTER_LIVE_CONFIG`.
+   */
+  readonly liveConfigPath?: string;
+  /**
    * Optional environment map for testability. Production callers omit this and
    * we read from `process.env`.
    */
@@ -64,6 +81,11 @@ export interface ResolvePathsOptions {
  *   1. `options.opencodeConfigDir` (explicit param).
  *   2. `${XDG_CONFIG_HOME}/opencode` if `XDG_CONFIG_HOME` set.
  *   3. `~/.config/opencode`.
+ *
+ * Resolution order for `liveConfigPath`:
+ *   1. `options.liveConfigPath` (explicit param) — wins.
+ *   2. `OMO_ROUTER_LIVE_CONFIG` env var.
+ *   3. `${opencodeConfigDir}/oh-my-openagent.json`.
  */
 export function resolvePaths(options: ResolvePathsOptions = {}): OmoPaths {
   const env = options.env ?? process.env;
@@ -75,10 +97,15 @@ export function resolvePaths(options: ResolvePathsOptions = {}): OmoPaths {
   const omoHome =
     options.omoHome ?? env.OMO_ROUTER_HOME ?? path.join(opencodeConfigDir, "omo-router");
 
+  const liveConfigPath =
+    options.liveConfigPath ??
+    env.OMO_ROUTER_LIVE_CONFIG ??
+    path.join(opencodeConfigDir, "oh-my-openagent.json");
+
   return {
     opencodeConfigDir,
     opencodeJsonPath: path.join(opencodeConfigDir, "opencode.json"),
-    liveConfigPath: path.join(opencodeConfigDir, "oh-my-openagent.json"),
+    liveConfigPath,
     opencodeBackupsDir: path.join(opencodeConfigDir, ".backups"),
     omoHome,
     statePath: path.join(omoHome, "state.json"),

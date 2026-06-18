@@ -48,4 +48,19 @@ describe("resolvePaths", () => {
     const p = resolvePaths({ opencodeConfigDir: "/foo" });
     expect(p.opencodeBackupsDir).toBe("/foo/.backups");
   });
+
+  it("OMO_ROUTER_LIVE_CONFIG overrides liveConfigPath but not opencodeConfigDir", () => {
+    const p = resolvePaths({ env: { OMO_ROUTER_LIVE_CONFIG: "/agents/oh-my-openagent.json" } });
+    expect(p.liveConfigPath).toBe("/agents/oh-my-openagent.json");
+    expect(p.opencodeConfigDir).toBe(path.join(homedir(), ".config", "opencode"));
+    expect(p.opencodeJsonPath).toBe(path.join(homedir(), ".config", "opencode", "opencode.json"));
+  });
+
+  it("explicit options.liveConfigPath wins over OMO_ROUTER_LIVE_CONFIG", () => {
+    const p = resolvePaths({
+      env: { OMO_ROUTER_LIVE_CONFIG: "/wrong/oh-my-openagent.json" },
+      liveConfigPath: "/right/oh-my-openagent.json",
+    });
+    expect(p.liveConfigPath).toBe("/right/oh-my-openagent.json");
+  });
 });

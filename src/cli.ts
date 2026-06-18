@@ -27,6 +27,7 @@ import { fileURLToPath } from "node:url";
 import { cac } from "cac";
 import { atomicWriteFile } from "./core/atomic-write.js";
 import { backupFiles } from "./core/backups.js";
+import { resolvePathsWithConfig } from "./core/config.js";
 import {
   IOError,
   ModelValidationError,
@@ -42,7 +43,7 @@ import {
   readOpencodeJson,
   writeOpencodeJson,
 } from "./core/opencode-config.js";
-import { type OmoPaths, resolvePaths } from "./core/paths.js";
+import type { OmoPaths } from "./core/paths.js";
 import {
   addStack,
   back,
@@ -398,7 +399,7 @@ function cmdPath(paths: OmoPaths): void {
 
 async function main(argv: ReadonlyArray<string>): Promise<number> {
   const cli = cac("omo-router");
-  const paths = resolvePaths();
+  const paths = await resolvePathsWithConfig();
 
   cli
     .command("init", "create state dirs, drop seeds, set premium active, edit opencode.json")
