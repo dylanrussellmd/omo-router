@@ -19,8 +19,8 @@
     }
   },
   "bin": {
-    "omo-router": "./dist/cli.js",
-    "omo": "./dist/cli.js"
+    "omo-router": "dist/cli.js",
+    "omo": "dist/cli.js"
   },
   "files": [
     "dist",
