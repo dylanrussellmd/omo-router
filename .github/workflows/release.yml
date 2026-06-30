@@ -1,0 +1,70 @@
+name: Release
+
+# Publishes @dylanrussell/omo-router to npm when a semver tag (vX.Y.Z) is pushed.
+# Auth is npm Trusted Publishing via OIDC — no NPM_TOKEN secret is stored.
+# The job mints a short-lived OIDC token that npm trusts because this exact
+# repo + workflow filename is registered as a trusted publisher on npmjs.com.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write   # REQUIRED: lets the job mint the OIDC token npm verifies
+  contents: read
+
+jobs:
+  publish:
+    name: publish to npm
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: setup node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+          # Never cache deps in a release build (supply-chain hygiene).
+
+      # Trusted Publishing (OIDC) requires npm >= 11.5.1. The npm bundled with
+      # node 24 is older, so pin a known-good modern npm explicitly.
+      - name: upgrade npm (OIDC support)
+        run: npm install -g npm@latest
+
+      - name: install (frozen)
+        run: pnpm install --frozen-lockfile=false
+
+      # Re-run the full gate so a tag can never ship something main wouldn't.
+      - name: typecheck
+        run: pnpm typecheck
+      - name: lint
+        run: pnpm lint
+      - name: build
+        run: pnpm build
+      - name: test
+        run: pnpm test
+
+      # Guard: the tag (vX.Y.Z) must match package.json "version" exactly, so
+      # `git tag v0.1.1` on a package.json still at 0.1.0 fails loudly instead
+      # of publishing a mismatched artifact.
+      - name: verify tag matches package.json version
+        run: |
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
+            echo "::error::tag $GITHUB_REF_NAME (=$TAG_VERSION) does not match package.json version $PKG_VERSION"
+            exit 1
+          fi
+          echo "tag and package.json agree on $PKG_VERSION"
+
+      # No --otp, no NODE_AUTH_TOKEN: OIDC + modern npm authenticate silently.
+      # --provenance attaches a signed build-provenance attestation (public repos).
+      - name: publish
+        run: npm publish --access public --provenance
