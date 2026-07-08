@@ -16,29 +16,52 @@
  */
 
 import { randomBytes } from "node:crypto";
-import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
+import { mkdir, realpath, rename, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { IOError } from "./errors.js";
 
 /**
+ * Resolve symlinks before writing. rename(2) onto a symlink replaces the
+ * link itself, not its target — which silently destroys dotfile-manager
+ * setups (e.g. chezmoi's `~/.config/opencode/tui.json -> ~/.agents/tui.json`).
+ * Writing to the resolved real path keeps the link intact and also keeps the
+ * tmp file on the same filesystem as the actual destination, which rename's
+ * atomicity requires.
+ */
+async function resolveDestination(destPath: string): Promise<string> {
+  try {
+    return await realpath(destPath);
+  } catch {
+    try {
+      const dir = await realpath(path.dirname(destPath));
+      return path.join(dir, path.basename(destPath));
+    } catch {
+      return destPath;
+    }
+  }
+}
+
+/**
  * Write `contents` to `destPath` atomically. Creates parent directories if
- * missing. On failure cleans up the tmp file (best-effort).
+ * missing. Follows symlinks (writes through to the target). On failure cleans
+ * up the tmp file (best-effort).
  *
  * @param destPath Absolute destination path.
  * @param contents UTF-8 string to write. Use `JSON.stringify` for JSON.
  */
 export async function atomicWriteFile(destPath: string, contents: string): Promise<void> {
-  const dir = path.dirname(destPath);
-  await mkdir(dir, { recursive: true });
+  await mkdir(path.dirname(destPath), { recursive: true });
+  const dest = await resolveDestination(destPath);
+  const dir = path.dirname(dest);
 
   const tmp = path.join(
     dir,
-    `.${path.basename(destPath)}.omotmp-${process.pid}-${randomBytes(4).toString("hex")}`,
+    `.${path.basename(dest)}.omotmp-${process.pid}-${randomBytes(4).toString("hex")}`,
   );
 
   try {
     await writeFile(tmp, contents, { encoding: "utf8", mode: 0o644 });
-    await rename(tmp, destPath);
+    await rename(tmp, dest);
   } catch (cause) {
     await unlink(tmp).catch(() => {
       // Best-effort cleanup. The tmp suffix means leftover files are
