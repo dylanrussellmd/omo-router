@@ -5,15 +5,15 @@
  */
 
 import { atomicWriteJson } from "../core/atomic-write.js";
-import type { OmoPaths } from "../core/paths.js";
+import type { RouterPaths } from "../core/paths.js";
 import { StackFileSchema } from "../core/schema.js";
 import {
+  applyStack,
   back,
   getActiveStackName,
   listStacks,
   readStack,
   stackPath,
-  switchTo,
 } from "../core/stack-manager.js";
 import { readState } from "../core/state.js";
 import { validateStack } from "../core/validator.js";
@@ -24,29 +24,29 @@ import {
   listModelTargets,
   targetLabel,
 } from "./actions.js";
-import type { OmoTuiApi, SelectOption } from "./host.js";
+import type { RouterTuiApi, SelectOption } from "./host.js";
 
 export interface DialogDeps {
-  readonly api: OmoTuiApi;
-  readonly paths: OmoPaths;
+  readonly api: RouterTuiApi;
+  readonly paths: RouterPaths;
   readonly refresh: () => void;
 }
 
-export function canOpenDialogs(api: OmoTuiApi): boolean {
+export function canOpenDialogs(api: RouterTuiApi): boolean {
   return Boolean(api.ui.DialogSelect && api.ui.dialog);
 }
 
-function toastError(api: OmoTuiApi, e: unknown): void {
+function toastError(api: RouterTuiApi, e: unknown): void {
   api.ui.toast({
-    title: "omo-router",
+    title: "agent-router",
     message: (e as Error).message ?? String(e),
     variant: "error",
   });
 }
 
 function openSelect(
-  api: OmoTuiApi,
-  props: Parameters<NonNullable<OmoTuiApi["ui"]["DialogSelect"]>>[0],
+  api: RouterTuiApi,
+  props: Parameters<NonNullable<RouterTuiApi["ui"]["DialogSelect"]>>[0],
 ): void {
   const { DialogSelect, dialog } = api.ui;
   if (!DialogSelect || !dialog) return;
@@ -64,8 +64,8 @@ async function pickStack(
   ]);
   if (stacks.length === 0) {
     deps.api.ui.toast({
-      title: "omo-router",
-      message: "No stacks found — run `omo-router init` first.",
+      title: "agent-router",
+      message: "No stacks found — run `agent-router init` first.",
       variant: "warning",
     });
     return;
@@ -83,15 +83,15 @@ export function openStackSwitcher(deps: DialogDeps): void {
   void pickStack(deps, "Switch stack", (name, active) => {
     deps.api.ui.dialog?.clear();
     if (name === active) {
-      deps.api.ui.toast({ title: "omo-router", message: `"${name}" is already active` });
+      deps.api.ui.toast({ title: "agent-router", message: `"${name}" is already active` });
       return;
     }
-    deps.api.ui.toast({ title: "omo-router", message: `validating & switching to "${name}"…` });
-    switchTo(deps.paths, name, { snapshotBack: true, validate: true })
+    deps.api.ui.toast({ title: "agent-router", message: `validating & switching to "${name}"…` });
+    applyStack(deps.paths, name, { validate: true })
       .then((r) => {
         deps.refresh();
         deps.api.ui.toast({
-          title: "omo-router",
+          title: "agent-router",
           message: `switched to "${r.current}" — restart opencode to apply`,
           variant: "success",
         });
@@ -106,9 +106,9 @@ export function openStackViewer(deps: DialogDeps): void {
       .then((stack) => {
         const rows = listModelTargets(stack);
         const options: SelectOption[] = rows.map((row) => ({
-          title: targetLabel(row.ref),
-          value: targetLabel(row.ref),
-          description: describeTarget(row),
+          title: targetLabel(row),
+          value: targetLabel(row),
+          description: row.model,
           onSelect: () => deps.api.ui.dialog?.clear(),
         }));
         openSelect(deps.api, { title: `stack: ${name}`, options });
@@ -117,22 +117,18 @@ export function openStackViewer(deps: DialogDeps): void {
   }).catch((e) => toastError(deps.api, e));
 }
 
-function describeTarget(row: ModelTarget): string {
-  return row.fallbackCount > 0 ? `${row.model} (+${row.fallbackCount} fallback)` : row.model;
-}
-
 export function openStackEditor(deps: DialogDeps): void {
   void pickStack(deps, "Edit stack", (name) => {
     readStack(deps.paths, name)
       .then((stack) => {
         const rows = listModelTargets(stack);
         const options: SelectOption[] = rows.map((row) => ({
-          title: targetLabel(row.ref),
-          value: targetLabel(row.ref),
-          description: describeTarget(row),
+          title: targetLabel(row),
+          value: targetLabel(row),
+          description: row.model,
           onSelect: () => openModelPicker(deps, name, row),
         }));
-        openSelect(deps.api, { title: `edit ${name}: pick entry`, options });
+        openSelect(deps.api, { title: `edit ${name}: pick agent`, options });
       })
       .catch((e) => toastError(deps.api, e));
   }).catch((e) => toastError(deps.api, e));
@@ -143,8 +139,8 @@ function openModelPicker(deps: DialogDeps, stackName: string, row: ModelTarget):
   if (models.length === 0) {
     deps.api.ui.dialog?.clear();
     deps.api.ui.toast({
-      title: "omo-router",
-      message: "Model catalog unavailable — edit the stack file via `omo-router edit` instead.",
+      title: "agent-router",
+      message: "Model catalog unavailable — edit the stack file via `agent-router edit` instead.",
       variant: "warning",
     });
     return;
@@ -158,7 +154,7 @@ function openModelPicker(deps: DialogDeps, stackName: string, row: ModelTarget):
     },
   }));
   openSelect(deps.api, {
-    title: `edit ${stackName}: ${targetLabel(row.ref)}`,
+    title: `edit ${stackName}: ${targetLabel(row)}`,
     options,
     current: row.model,
   });
@@ -171,17 +167,17 @@ async function saveModelEdit(
   model: string,
 ): Promise<void> {
   const stack = await readStack(deps.paths, stackName);
-  const edited = StackFileSchema.parse(applyModelEdit(stack, row.ref, model));
+  const edited = StackFileSchema.parse(applyModelEdit(stack, row.agent, model));
   await atomicWriteJson(stackPath(deps.paths, stackName), edited);
   deps.refresh();
   const active = await getActiveStackName(deps.paths);
   const hint =
     active === stackName
-      ? ` — run \`omo use ${stackName}\` + restart to apply to the live config`
+      ? ` — run \`agent-router use ${stackName}\` + restart to apply to the agent files`
       : "";
   deps.api.ui.toast({
-    title: "omo-router",
-    message: `${stackName}: ${targetLabel(row.ref)} → ${model}${hint}`,
+    title: "agent-router",
+    message: `${stackName}: ${targetLabel(row)} → ${model}${hint}`,
     variant: "success",
   });
 }
@@ -190,7 +186,7 @@ export function openBackConfirm(deps: DialogDeps): void {
   readState(deps.paths.statePath)
     .then((state) => {
       if (!state?.previousActive) {
-        deps.api.ui.toast({ title: "omo-router", message: "No previous stack to revert to." });
+        deps.api.ui.toast({ title: "agent-router", message: "No previous stack to revert to." });
         return;
       }
       const { DialogConfirm, dialog } = deps.api.ui;
@@ -200,7 +196,7 @@ export function openBackConfirm(deps: DialogDeps): void {
           .then((r) => {
             deps.refresh();
             deps.api.ui.toast({
-              title: "omo-router",
+              title: "agent-router",
               message: `reverted to "${r.current}" — restart opencode to apply`,
               variant: "success",
             });
@@ -213,7 +209,7 @@ export function openBackConfirm(deps: DialogDeps): void {
       }
       dialog.replace(() =>
         DialogConfirm({
-          title: "omo-router",
+          title: "agent-router",
           message: `Revert to "${state.previousActive}"?`,
           onConfirm: revert,
           onCancel: () => dialog.clear(),
@@ -226,13 +222,13 @@ export function openBackConfirm(deps: DialogDeps): void {
 export function openValidator(deps: DialogDeps): void {
   void pickStack(deps, "Validate stack", (name) => {
     deps.api.ui.dialog?.clear();
-    deps.api.ui.toast({ title: "omo-router", message: `validating "${name}"…` });
+    deps.api.ui.toast({ title: "agent-router", message: `validating "${name}"…` });
     readStack(deps.paths, name)
       .then((stack) => validateStack(stack))
       .then((result) => {
         if (result.ok) {
           deps.api.ui.toast({
-            title: "omo-router",
+            title: "agent-router",
             message: `"${name}" ok — ${result.checked} model refs reachable`,
             variant: "success",
           });
@@ -244,7 +240,7 @@ export function openValidator(deps: DialogDeps): void {
           .join(", ");
         const extra = result.missing.length > 3 ? ` (+${result.missing.length - 3} more)` : "";
         deps.api.ui.toast({
-          title: "omo-router",
+          title: "agent-router",
           message: `"${name}": ${result.missing.length} unreachable — ${sample}${extra}`,
           variant: "warning",
         });

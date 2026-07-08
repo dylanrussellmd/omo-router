@@ -1,14 +1,12 @@
 /**
- * Read and edit `~/.config/opencode/opencode.json`.
+ * Read and edit `~/.config/opencode/opencode.json` and `tui.json`.
  *
- * `omo-router init` is the only place that writes this file. The mutations
- * are deliberately minimal:
+ * `agent-router init` is the only place that writes these files. The mutation
+ * is deliberately minimal: ensure each `plugin` array contains
+ * `@dylanrussell/agent-router@latest` (and drop the legacy
+ * `@dylanrussell/omo-router` entry when present).
  *
- *   1. Ensure `plugin` array contains `@dylanrussell/omo-router@latest`.
- *   2. Ensure `provider.openrouter.models` contains every OpenRouter ID our
- *      seed stacks reference (so opencode actually exposes them).
- *
- * Both ops are idempotent: re-running `init` on an already-configured file
+ * All ops are idempotent: re-running `init` on an already-configured file
  * leaves it unchanged. We always back up before writing — see `backups.ts`.
  */
 
@@ -18,9 +16,11 @@ import { atomicWriteJson } from "./atomic-write.js";
 import { IOError, ValidationError } from "./errors.js";
 import { type OpencodeJson, OpencodeJsonSchema } from "./schema.js";
 
-export const PLUGIN_NPM_NAME = "@dylanrussell/omo-router";
-/** What we add to opencode.json's plugin[] — name@latest for auto-updates. */
+export const PLUGIN_NPM_NAME = "@dylanrussell/agent-router";
+/** What we add to plugin[] arrays — name@latest for auto-updates. */
 export const PLUGIN_REGISTRY_ENTRY = `${PLUGIN_NPM_NAME}@latest`;
+/** The predecessor package `init` removes when found. */
+export const LEGACY_PLUGIN_NPM_NAME = "@dylanrussell/omo-router";
 
 /** Read opencode.json. Returns null if absent. Throws on parse/schema error. */
 export async function readOpencodeJson(opencodeJsonPath: string): Promise<OpencodeJson | null> {
@@ -30,7 +30,7 @@ export async function readOpencodeJson(opencodeJsonPath: string): Promise<Openco
 /**
  * Read tui.json — opencode's TUI config. Same loose schema as opencode.json;
  * the TUI (opencode >= 1.17) loads its plugins from THIS file's `plugin`
- * array, so omo-router's sidebar half must be registered here.
+ * array, so agent-router's sidebar half must be registered here.
  */
 export async function readTuiJson(tuiJsonPath: string): Promise<OpencodeJson | null> {
   return readPluginConfigFile(tuiJsonPath, "tui.json");
@@ -90,6 +90,32 @@ export function ensurePluginEntry(
   };
 }
 
+export interface RemovePluginEntryResult {
+  /** The entries actually removed. */
+  readonly removed: ReadonlyArray<string>;
+  readonly plugin: string[];
+}
+
+/**
+ * Pure transform: remove every plugin entry whose package name (version tag
+ * stripped) equals `npmName`. Idempotent.
+ */
+export function removePluginEntry(
+  config: OpencodeJson,
+  npmName: string = LEGACY_PLUGIN_NPM_NAME,
+): { config: OpencodeJson; result: RemovePluginEntryResult } {
+  const existing = config.plugin ?? [];
+  const removed = existing.filter((p) => stripVersionTag(p) === npmName);
+  if (removed.length === 0) {
+    return { config, result: { removed: [], plugin: existing } };
+  }
+  const next = existing.filter((p) => stripVersionTag(p) !== npmName);
+  return {
+    config: { ...config, plugin: next },
+    result: { removed, plugin: next },
+  };
+}
+
 /** Strip `@version` from a plugin entry. `foo@1.2.3` → `foo`; scoped names handled. */
 function stripVersionTag(entry: string): string {
   // For scoped packages `@org/name@ver`, the `@` we want is the LAST one.
@@ -98,54 +124,6 @@ function stripVersionTag(entry: string): string {
   // If `lastAt` is 0 it's the leading `@` of a scoped name with no version.
   if (lastAt <= 0) return entry;
   return entry.slice(0, lastAt);
-}
-
-export interface EnsureOpenrouterModelsResult {
-  /** Model IDs we actually added (excluding ones already present). */
-  readonly added: ReadonlyArray<string>;
-}
-
-/**
- * Pure transform: ensure `config.provider.openrouter.models` contains an empty
- * object entry for each id in `modelIds`. We use `{}` as the value because
- * that's the convention in the user's existing opencode.json — opencode
- * accepts a plain `{}` per model. Idempotent.
- */
-export function ensureOpenrouterModels(
-  config: OpencodeJson,
-  modelIds: ReadonlyArray<string>,
-): { config: OpencodeJson; result: EnsureOpenrouterModelsResult } {
-  const existingProvider = config.provider ?? {};
-  const existingOpenrouter =
-    (existingProvider.openrouter as { models?: Record<string, unknown> } | undefined) ?? {};
-  const existingModels = existingOpenrouter.models ?? {};
-
-  const added: string[] = [];
-  const nextModels: Record<string, unknown> = { ...existingModels };
-  for (const id of modelIds) {
-    if (!(id in nextModels)) {
-      nextModels[id] = {};
-      added.push(id);
-    }
-  }
-
-  if (added.length === 0) {
-    return { config, result: { added: [] } };
-  }
-
-  return {
-    config: {
-      ...config,
-      provider: {
-        ...existingProvider,
-        openrouter: {
-          ...existingOpenrouter,
-          models: nextModels,
-        },
-      },
-    },
-    result: { added },
-  };
 }
 
 /** Write opencode.json. Caller is responsible for backing up first. */
@@ -160,17 +138,18 @@ const TUI_JSON_SCHEMA_URL = "https://opencode.ai/config.json";
 
 /**
  * Ensure tui.json exists and lists `entry` in its `plugin` array so the TUI
- * half of omo-router loads. Creates the file when absent. Idempotent.
- * Returns whether an entry was added (callers back up before calling when the
- * file already exists).
+ * half of agent-router loads (and drop the legacy omo-router entry). Creates
+ * the file when absent. Idempotent. Returns whether an entry was added
+ * (callers back up before calling when the file already exists).
  */
 export async function ensureTuiJsonPluginEntry(
   tuiJsonPath: string,
   entry: string = PLUGIN_REGISTRY_ENTRY,
 ): Promise<EnsurePluginEntryResult> {
   const existing = (await readTuiJson(tuiJsonPath)) ?? { $schema: TUI_JSON_SCHEMA_URL };
-  const { config, result } = ensurePluginEntry(existing, entry);
-  if (result.added) {
+  const removed = removePluginEntry(existing);
+  const { config, result } = ensurePluginEntry(removed.config, entry);
+  if (result.added || removed.result.removed.length > 0) {
     await atomicWriteJson(tuiJsonPath, config);
   }
   return result;

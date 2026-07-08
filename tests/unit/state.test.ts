@@ -1,75 +1,66 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ValidationError } from "../../src/core/errors.js";
-import type { StateFile } from "../../src/core/schema.js";
 import { readState, writeState } from "../../src/core/state.js";
 
-function tmp(): string {
-  return mkdtempSync(path.join(tmpdir(), "omo-state-"));
-}
+let dir: string;
+let statePath: string;
 
-describe("state.json", () => {
-  it("returns null when state.json is missing", async () => {
-    const dir = tmp();
-    try {
-      expect(await readState(path.join(dir, "state.json"))).toBeNull();
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+beforeEach(() => {
+  dir = mkdtempSync(path.join(tmpdir(), "ar-state-"));
+  statePath = path.join(dir, "state.json");
+});
+
+afterEach(() => {
+  rmSync(dir, { recursive: true, force: true });
+});
+
+const VALID = {
+  version: 1 as const,
+  active: "premium",
+  previousActive: null,
+  lastSwitchedAt: new Date().toISOString(),
+};
+
+describe("readState", () => {
+  it("returns null when the file is absent", async () => {
+    expect(await readState(statePath)).toBeNull();
   });
 
-  it("round-trips a valid state file", async () => {
-    const dir = tmp();
-    try {
-      const p = path.join(dir, "state.json");
-      const state: StateFile = {
-        version: 1,
-        active: "premium",
-        previousActive: null,
-        lastSwitchedAt: "2026-05-04T00:00:00.000Z",
-        lastSnapshottedFrom: null,
-      };
-      await writeState(p, state);
-      const got = await readState(p);
-      expect(got).toEqual(state);
-      expect(readFileSync(p, "utf8")).toMatch(/\n$/);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+  it("round-trips through writeState", async () => {
+    await writeState(statePath, VALID);
+    expect(await readState(statePath)).toEqual(VALID);
   });
 
-  it("rejects malformed JSON with ValidationError", async () => {
-    const dir = tmp();
-    try {
-      const p = path.join(dir, "state.json");
-      writeFileSync(p, "{ not json");
-      await expect(readState(p)).rejects.toBeInstanceOf(ValidationError);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+  it("throws ValidationError on malformed JSON", async () => {
+    writeFileSync(statePath, "{broken");
+    await expect(readState(statePath)).rejects.toBeInstanceOf(ValidationError);
   });
 
-  it("rejects state with wrong shape", async () => {
-    const dir = tmp();
-    try {
-      const p = path.join(dir, "state.json");
-      writeFileSync(p, JSON.stringify({ version: 999, active: 42 }));
-      await expect(readState(p)).rejects.toBeInstanceOf(ValidationError);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+  it("throws ValidationError on schema mismatch", async () => {
+    writeFileSync(statePath, JSON.stringify({ version: 99 }));
+    await expect(readState(statePath)).rejects.toBeInstanceOf(ValidationError);
   });
 
+  it("rejects legacy state with lastSnapshottedFrom", async () => {
+    writeFileSync(statePath, JSON.stringify({ ...VALID, lastSnapshottedFrom: null }));
+    await expect(readState(statePath)).rejects.toBeInstanceOf(ValidationError);
+  });
+});
+
+describe("writeState", () => {
   it("refuses to write invalid state", async () => {
-    const dir = tmp();
-    try {
-      const p = path.join(dir, "state.json");
-      // @ts-expect-error - deliberately wrong
-      await expect(writeState(p, { active: "x" })).rejects.toBeInstanceOf(ValidationError);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+    await expect(
+      writeState(statePath, { ...VALID, active: "" } as typeof VALID),
+    ).rejects.toBeInstanceOf(ValidationError);
+  });
+
+  it("writes pretty JSON with trailing newline", async () => {
+    await writeState(statePath, VALID);
+    const raw = readFileSync(statePath, "utf8");
+    expect(raw.endsWith("\n")).toBe(true);
+    expect(raw).toContain('  "active"');
   });
 });

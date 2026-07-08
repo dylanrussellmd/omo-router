@@ -1,21 +1,16 @@
 /**
- * Zod schemas for omo-router's own files.
+ * Zod schemas for agent-router's own files.
  *
  * Two philosophies:
  *
- *   1. `state.json` is OURS — strict schema, fail closed. We control every
- *      byte; if it's malformed something corrupted it and we should refuse
- *      to proceed rather than silently rebuild and lose pointers.
+ *   1. `state.json` and `config.json` are OURS — strict schema, fail closed.
+ *      We control every byte; if malformed something corrupted it and we
+ *      should refuse to proceed rather than silently rebuild and lose pointers.
  *
- *   2. `stacks/*.json` are FORWARDED to oh-my-openagent. They follow that
- *      project's schema, which evolves out from under us. We validate only
- *      the shape we care about (presence of agents/categories with `model`
- *      strings) and pass everything else through verbatim. This way new
- *      top-level keys oh-my-openagent adds keep working without an
- *      omo-router update.
- *
- * `record(z.string(), …)` is used rather than `z.object({})` everywhere for
- * forward compatibility — unknown keys survive round-trips.
+ *   2. `stacks/*.json` are user-authored. We validate only the shape we care
+ *      about (an `agents` record whose entries carry a `model` string) and
+ *      pass unknown keys through verbatim so future additions survive
+ *      round-trips.
  */
 
 import { z } from "zod";
@@ -24,86 +19,71 @@ import { z } from "zod";
  * state.json                                                                 *
  * ------------------------------------------------------------------------- */
 
-/** Sentinel marker written into `state.active` after `omo-router restore <id>`. */
-export const RESTORED_SENTINEL_PREFIX = "(restored:";
-
 export const StateFileSchema = z
   .object({
     version: z.literal(1),
     active: z.string().min(1),
     previousActive: z.string().min(1).nullable(),
     lastSwitchedAt: z.string().min(1),
-    lastSnapshottedFrom: z.string().min(1).nullable(),
   })
   .strict();
 
 export type StateFile = z.infer<typeof StateFileSchema>;
 
 /* ------------------------------------------------------------------------- *
- * stack files (forwarded to oh-my-openagent verbatim)                        *
+ * stack files                                                                *
  * ------------------------------------------------------------------------- */
 
 /**
- * The smallest commitment we make about a model entry: it must have a `model`
- * string. Variants, fallbacks, temperatures, and unknown keys ride along
- * unchanged.
+ * The smallest commitment a stack entry makes: it must have a `model` string.
+ * Unknown keys ride along unchanged.
  */
-export const ModelEntrySchema = z
+export const AgentEntrySchema = z
   .object({
     model: z.string().min(1),
-    fallback_models: z.array(z.object({ model: z.string().min(1) }).passthrough()).optional(),
   })
   .passthrough();
 
-export type ModelEntry = z.infer<typeof ModelEntrySchema>;
+export type AgentEntry = z.infer<typeof AgentEntrySchema>;
 
 /**
- * The minimum a stack file must satisfy: at least one of `agents` or
- * `categories` is present and is a record of model entries. All other
- * top-level keys (and unknown sub-keys) are preserved.
+ * A stack maps agent names (the `<name>.md` files in the agents dir) to the
+ * model each should run on. `apply` rewrites each file's frontmatter `model:`
+ * line to match; `capture` builds one of these from the current frontmatter.
  */
 export const StackFileSchema = z
   .object({
-    agents: z.record(z.string(), ModelEntrySchema).optional(),
-    categories: z.record(z.string(), ModelEntrySchema).optional(),
+    agents: z.record(z.string(), AgentEntrySchema),
   })
   .passthrough()
-  .refine((s) => s.agents != null || s.categories != null, {
-    message: "Stack file must contain at least one of `agents` or `categories`.",
+  .refine((s) => Object.keys(s.agents).length > 0, {
+    message: "Stack file must map at least one agent in `agents`.",
   });
 
 export type StackFile = z.infer<typeof StackFileSchema>;
 
 /* ------------------------------------------------------------------------- *
- * config.json (omo-router's own settings — strict, fail closed)              *
+ * config.json (agent-router's own settings — strict, fail closed)            *
  * ------------------------------------------------------------------------- */
 
 export const ConfigFileSchema = z
   .object({
-    liveConfigPath: z.string().min(1).optional(),
+    /** Where the agent .md files live. Default: `${opencodeConfigDir}/agents`. */
+    agentsDir: z.string().min(1).optional(),
+    /** Where named stacks live. Default: `${routerHome}/stacks`. */
+    stacksDir: z.string().min(1).optional(),
   })
   .strict();
 
 export type ConfigFile = z.infer<typeof ConfigFileSchema>;
 
 /**
- * Loose schema for `opencode.json`. We only read/edit `plugin` (array) and
- * `provider.openrouter.models` (record). Everything else is preserved.
+ * Loose schema for `opencode.json` / `tui.json`. We only read/edit `plugin`
+ * (array). Everything else is preserved.
  */
 export const OpencodeJsonSchema = z
   .object({
     plugin: z.array(z.string()).optional(),
-    provider: z
-      .object({
-        openrouter: z
-          .object({
-            models: z.record(z.string(), z.unknown()).optional(),
-          })
-          .passthrough()
-          .optional(),
-      })
-      .passthrough()
-      .optional(),
   })
   .passthrough();
 

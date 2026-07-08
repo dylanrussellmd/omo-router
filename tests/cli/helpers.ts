@@ -1,13 +1,13 @@
 /**
  * CLI smoke-test harness.
  *
- * Spawns the CLI as a child process with a tmp `OMO_ROUTER_HOME` and a tmp
+ * Spawns the CLI as a child process with a tmp `AGENT_ROUTER_HOME`, a tmp
+ * agents dir (`AGENT_ROUTER_AGENTS_DIR`), and a tmp
  * `XDG_CONFIG_HOME/opencode/` so each test starts from clean state.
  *
  * We invoke the CLI via the source TypeScript entry through `tsx` — that way
  * we exercise the same code paths as the eventual built binary without
- * needing to run `tsup` in test setup. Tests stay fast (single process) and
- * don't depend on dist/ being built.
+ * needing to run `tsup` in test setup.
  *
  * `opencode models` is faked by injecting a stub binary on PATH that prints
  * a deterministic model list. This makes the validation gate fully
@@ -24,28 +24,30 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = path.resolve(here, "..", "..");
 const CLI_ENTRY = path.join(REPO_ROOT, "src", "cli.ts");
 
-/** Models the CLI tests expect to be reachable (covers all 3 seeds). */
-const FAKE_OPENCODE_MODELS = [
-  "anthropic/claude-opus-4-7",
-  "anthropic/claude-sonnet-4-6",
-  "openrouter/openai/gpt-5.4",
-  "openrouter/openai/gpt-5.4-mini",
-  "openrouter/anthropic/claude-sonnet-4-6",
-  "openrouter/anthropic/claude-haiku-4.5",
-  "openrouter/google/gemini-2.5-flash",
-  "openrouter/openai/gpt-oss-120b:free",
-  "google/gemini-3-flash-preview",
-  "google/gemini-3.1-pro-preview",
-  "google/gemini-2.5-flash",
+/** Models the CLI tests expect to be reachable. */
+export const FAKE_OPENCODE_MODELS = [
+  "a/one",
+  "b/two",
+  "c/three",
+  "openrouter/anthropic/claude-fable-5",
+  "openrouter/openai/gpt-5.5",
 ];
 
+export function agentMd(model: string, name: string): string {
+  return `---\ndescription: ${name} agent\nmode: subagent\nmodel: ${model}\ntemperature: 0.1\n---\nYou are ${name}.\n`;
+}
+
 export interface CliFixture {
-  /** OMO_ROUTER_HOME for this run. */
-  omoHome: string;
-  /** Synthetic `~/.config` so opencode.json + oh-my-openagent.json land in tmp. */
+  /** AGENT_ROUTER_HOME for this run. */
+  routerHome: string;
+  /** AGENT_ROUTER_AGENTS_DIR for this run — pre-seeded with Omni + oracle. */
+  agentsDir: string;
+  /** Synthetic `~/.config` so opencode.json + tui.json land in tmp. */
   xdgHome: string;
   /** Resolved opencode config dir = `${xdgHome}/opencode`. */
   opencodeConfigDir: string;
+  /** `${routerHome}/stacks`. */
+  stacksDir: string;
   /** PATH-prepended dir holding the stub `opencode` binary. */
   binDir: string;
   /** Convenience: full env to pass to spawnSync. */
@@ -57,15 +59,13 @@ export interface CliFixture {
 }
 
 export function setupCliFixture(): CliFixture {
-  const omoHome = mkdtempSync(path.join(tmpdir(), "omo-cli-omo-"));
-  const xdgHome = mkdtempSync(path.join(tmpdir(), "omo-cli-xdg-"));
-  const binDir = mkdtempSync(path.join(tmpdir(), "omo-cli-bin-"));
+  const routerHome = mkdtempSync(path.join(tmpdir(), "ar-cli-home-"));
+  const agentsDir = mkdtempSync(path.join(tmpdir(), "ar-cli-agents-"));
+  const xdgHome = mkdtempSync(path.join(tmpdir(), "ar-cli-xdg-"));
+  const binDir = mkdtempSync(path.join(tmpdir(), "ar-cli-bin-"));
   const opencodeConfigDir = path.join(xdgHome, "opencode");
   mkdirSync(opencodeConfigDir, { recursive: true });
 
-  // Stub `opencode` binary: prints fake model list when called as
-  // `opencode models`. Anything else is a noop with success exit. This is
-  // what the validator shells out to when --no-validate isn't passed.
   const stubScript = path.join(binDir, "opencode");
   writeFileSync(
     stubScript,
@@ -82,15 +82,18 @@ exit 0
   );
   chmodSync(stubScript, 0o755);
 
-  // Seed a baseline opencode.json so init's auto-edit has something to work
-  // with. Mirrors the user's actual layout.
+  writeFileSync(path.join(agentsDir, "Omni.md"), agentMd("a/one", "Omni"));
+  writeFileSync(path.join(agentsDir, "oracle.md"), agentMd("b/two", "oracle"));
+
+  // Baseline opencode.json so init's auto-edit has something to work with —
+  // includes the legacy omo-router entry init should remove.
   writeFileSync(
     path.join(opencodeConfigDir, "opencode.json"),
     `${JSON.stringify(
       {
         $schema: "https://opencode.ai/config.json",
-        plugin: ["oh-my-openagent@latest"],
-        provider: { openrouter: { models: { "openai/gpt-5.4": {} } } },
+        plugin: ["@dylanrussell/omo-router@latest"],
+        default_agent: "Omni",
       },
       null,
       2,
@@ -99,7 +102,8 @@ exit 0
 
   const env: NodeJS.ProcessEnv = {
     ...process.env,
-    OMO_ROUTER_HOME: omoHome,
+    AGENT_ROUTER_HOME: routerHome,
+    AGENT_ROUTER_AGENTS_DIR: agentsDir,
     XDG_CONFIG_HOME: xdgHome,
     PATH: `${binDir}:${process.env.PATH ?? ""}`,
     NO_COLOR: "1",
@@ -116,15 +120,18 @@ exit 0
   }
 
   return {
-    omoHome,
+    routerHome,
+    agentsDir,
     xdgHome,
     opencodeConfigDir,
+    stacksDir: path.join(routerHome, "stacks"),
     binDir,
     env,
     run,
     cleanup: () => {
       const { rmSync } = require("node:fs");
-      rmSync(omoHome, { recursive: true, force: true });
+      rmSync(routerHome, { recursive: true, force: true });
+      rmSync(agentsDir, { recursive: true, force: true });
       rmSync(xdgHome, { recursive: true, force: true });
       rmSync(binDir, { recursive: true, force: true });
     },

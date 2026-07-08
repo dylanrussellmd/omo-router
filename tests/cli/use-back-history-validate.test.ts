@@ -1,149 +1,148 @@
-import { readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
-import { setupCliFixture } from "./helpers.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { type CliFixture, setupCliFixture } from "./helpers.js";
 
-describe("use / back / history / restore / validate", () => {
-  it("use openrouter-cheap switches active and live", () => {
-    const fx = setupCliFixture();
-    try {
-      fx.run("init");
-      const r = fx.run("use", "openrouter-cheap");
-      expect(r.status).toBe(0);
-      expect(r.stdout).toMatch(/Switched: premium → openrouter-cheap/);
-      expect(r.stdout).toMatch(/Restart opencode/);
+let fx: CliFixture;
 
-      const state = JSON.parse(readFileSync(path.join(fx.omoHome, "state.json"), "utf8"));
-      expect(state.active).toBe("openrouter-cheap");
-      expect(state.previousActive).toBe("premium");
+beforeEach(() => {
+  fx = setupCliFixture();
+  fx.run("init");
+  writeFileSync(
+    path.join(fx.stacksDir, "cheap.json"),
+    JSON.stringify({ agents: { Omni: { model: "c/three" }, oracle: { model: "c/three" } } }),
+  );
+});
 
-      const live = JSON.parse(
-        readFileSync(path.join(fx.opencodeConfigDir, "oh-my-openagent.json"), "utf8"),
-      );
-      const cheap = JSON.parse(
-        readFileSync(path.join(fx.omoHome, "stacks", "openrouter-cheap.json"), "utf8"),
-      );
-      expect(live).toEqual(cheap);
+afterEach(() => {
+  fx.cleanup();
+});
 
-      const histFiles = readdirSync(path.join(fx.omoHome, "history"));
-      expect(histFiles.length).toBeGreaterThanOrEqual(1);
-    } finally {
-      fx.cleanup();
-    }
+function omniModel(): string {
+  return (
+    readFileSync(path.join(fx.agentsDir, "Omni.md"), "utf8").match(/^model: (.*)$/m)?.[1] ?? ""
+  );
+}
+
+describe("agent-router use", () => {
+  it("rewrites agent frontmatter and reminds about restart", () => {
+    const r = fx.run("use", "cheap");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("default → cheap");
+    expect(r.stdout).toContain("Restart opencode");
+    expect(omniModel()).toBe("c/three");
   });
 
-  it("use <unknown> exits 2", () => {
-    const fx = setupCliFixture();
-    try {
-      fx.run("init");
-      const r = fx.run("use", "ghost");
-      expect(r.status).toBe(2);
-      expect(r.stderr).toMatch(/Stack "ghost" not found/);
-      expect(r.stderr).toMatch(/Available:/);
-    } finally {
-      fx.cleanup();
-    }
+  it("exits 2 for unknown stacks", () => {
+    const r = fx.run("use", "ghost");
+    expect(r.status).toBe(2);
+    expect(omniModel()).toBe("a/one");
   });
 
-  it("use with model-validation failure exits 4", () => {
-    const fx = setupCliFixture();
-    try {
-      fx.run("init");
-      // craft a stack referencing an unreachable id
-      writeFileSync(
-        path.join(fx.omoHome, "stacks", "broken.json"),
-        JSON.stringify({
-          agents: { sisyphus: { model: "vendor-not-real/foo-bar" } },
-          categories: { quick: { model: "google/gemini-3-flash-preview" } },
-        }),
-      );
-      const r = fx.run("use", "broken");
-      expect(r.status).toBe(4);
-      expect(r.stderr).toMatch(/unreachable model ID/);
-      expect(r.stderr).toMatch(/vendor-not-real\/foo-bar/);
-    } finally {
-      fx.cleanup();
-    }
+  it("blocks on unreachable models unless forced", () => {
+    writeFileSync(
+      path.join(fx.stacksDir, "bad.json"),
+      JSON.stringify({ agents: { Omni: { model: "not/real" } } }),
+    );
+    const blocked = fx.run("use", "bad");
+    expect(blocked.status).toBe(4);
+    expect(omniModel()).toBe("a/one");
+
+    const forced = fx.run("use", "bad", "--force-invalid");
+    expect(forced.status).toBe(0);
+    expect(omniModel()).toBe("not/real");
+
+    const skipped = fx.run("use", "cheap", "--no-validate");
+    expect(skipped.status).toBe(0);
+    expect(omniModel()).toBe("c/three");
+  });
+});
+
+describe("agent-router back", () => {
+  it("reverts the last switch", () => {
+    fx.run("use", "cheap");
+    const r = fx.run("back");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("cheap → default");
+    expect(omniModel()).toBe("a/one");
   });
 
-  it("use --no-validate skips the gate", () => {
-    const fx = setupCliFixture();
-    try {
-      fx.run("init");
-      writeFileSync(
-        path.join(fx.omoHome, "stacks", "broken.json"),
-        JSON.stringify({
-          agents: { sisyphus: { model: "vendor-not-real/foo-bar" } },
-          categories: { quick: { model: "google/gemini-3-flash-preview" } },
-        }),
-      );
-      const r = fx.run("use", "broken", "--no-validate");
-      expect(r.status).toBe(0);
-    } finally {
-      fx.cleanup();
-    }
+  it("errors when there is nothing to revert", () => {
+    const r = fx.run("back");
+    expect(r.status).toBe(1);
+    expect(r.stderr).toContain("No previous stack");
+  });
+});
+
+describe("agent-router capture", () => {
+  it("snapshots current models into a stack", () => {
+    fx.run("use", "cheap");
+    const r = fx.run("capture", "my-mix");
+    expect(r.status).toBe(0);
+    const stack = JSON.parse(readFileSync(path.join(fx.stacksDir, "my-mix.json"), "utf8"));
+    expect(stack.agents.Omni.model).toBe("c/three");
   });
 
-  it("back undoes the last switch", () => {
-    const fx = setupCliFixture();
-    try {
-      fx.run("init");
-      fx.run("use", "openrouter-cheap");
-      const r = fx.run("back");
-      expect(r.status).toBe(0);
-      expect(r.stdout).toMatch(/openrouter-cheap → premium/);
-    } finally {
-      fx.cleanup();
-    }
+  it("refuses to overwrite without --force", () => {
+    expect(fx.run("capture", "default").status).toBe(1);
+    expect(fx.run("capture", "default", "--force").status).toBe(0);
+  });
+});
+
+describe("agent-router history", () => {
+  it("lists switches newest first", () => {
+    fx.run("use", "cheap");
+    fx.run("back");
+    const r = fx.run("history");
+    expect(r.status).toBe(0);
+    const lines = r.stdout.trim().split("\n");
+    expect(lines.length).toBeGreaterThanOrEqual(2);
+    expect(lines[0]).toContain("cheap → default");
+    expect(lines[1]).toContain("default → cheap");
   });
 
-  it("history lists newest-first", () => {
-    const fx = setupCliFixture();
-    try {
-      fx.run("init");
-      fx.run("use", "openrouter-cheap");
-      fx.run("use", "free-only");
-      const r = fx.run("history");
-      expect(r.status).toBe(0);
-      // First line should be the most recent transition (premium-to-... or ...-to-free-only)
-      const firstLine = r.stdout.split("\n")[0] ?? "";
-      expect(firstLine).toMatch(/free-only/);
-    } finally {
-      fx.cleanup();
-    }
+  it("prints a placeholder when empty", () => {
+    const r = fx.run("history");
+    expect(r.stdout).toContain("(no history)");
+  });
+});
+
+describe("agent-router validate", () => {
+  it("validates a single stack", () => {
+    const r = fx.run("validate", "cheap");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("OK");
   });
 
-  it("validate --all reports OK on seeds", () => {
-    const fx = setupCliFixture();
-    try {
-      fx.run("init");
-      const r = fx.run("validate", "--all");
-      expect(r.status).toBe(0);
-      expect(r.stdout).toMatch(/premium: OK/);
-      expect(r.stdout).toMatch(/openrouter-cheap: OK/);
-      expect(r.stdout).toMatch(/free-only: OK/);
-    } finally {
-      fx.cleanup();
-    }
+  it("validates all stacks and fails on unreachable ids", () => {
+    writeFileSync(
+      path.join(fx.stacksDir, "bad.json"),
+      JSON.stringify({ agents: { Omni: { model: "not/real" } } }),
+    );
+    const r = fx.run("validate", "--all");
+    expect(r.status).toBe(4);
+    expect(r.stderr).toContain("not/real");
   });
 
-  it("validate <broken> exits 4 with grouped output", () => {
-    const fx = setupCliFixture();
-    try {
-      fx.run("init");
-      writeFileSync(
-        path.join(fx.omoHome, "stacks", "broken.json"),
-        JSON.stringify({
-          agents: { sisyphus: { model: "vendor-not-real/foo-bar" } },
-          categories: { quick: { model: "google/gemini-3-flash-preview" } },
-        }),
-      );
-      const r = fx.run("validate", "broken");
-      expect(r.status).toBe(4);
-      expect(r.stderr).toMatch(/MISSING/);
-      expect(r.stderr).toMatch(/vendor-not-real\/foo-bar/);
-    } finally {
-      fx.cleanup();
-    }
+  it("validates the current frontmatter with --active", () => {
+    const r = fx.run("validate", "--active");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("(current frontmatter): OK");
+  });
+});
+
+describe("agent-router rm/import/export", () => {
+  it("rm refuses the active stack without --force", () => {
+    expect(fx.run("rm", "default").status).toBe(1);
+    expect(fx.run("rm", "cheap").status).toBe(0);
+    expect(fx.run("rm", "default", "--force").status).toBe(0);
+  });
+
+  it("import/export round-trip", () => {
+    const out = path.join(fx.xdgHome, "exported.json");
+    expect(fx.run("export", "cheap", out).status).toBe(0);
+    expect(fx.run("import", "cheap2", out).status).toBe(0);
+    const r = fx.run("show", "cheap2");
+    expect(JSON.parse(r.stdout).agents.Omni.model).toBe("c/three");
   });
 });

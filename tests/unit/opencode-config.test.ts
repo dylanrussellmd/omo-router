@@ -1,102 +1,130 @@
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
+  LEGACY_PLUGIN_NPM_NAME,
   PLUGIN_REGISTRY_ENTRY,
-  ensureOpenrouterModels,
   ensurePluginEntry,
+  ensureTuiJsonPluginEntry,
   readOpencodeJson,
+  removePluginEntry,
   writeOpencodeJson,
 } from "../../src/core/opencode-config.js";
 
-function tmp(): string {
-  return mkdtempSync(path.join(tmpdir(), "omo-oc-"));
-}
+let dir: string;
+
+beforeEach(() => {
+  dir = mkdtempSync(path.join(tmpdir(), "ar-occfg-"));
+});
+
+afterEach(() => {
+  rmSync(dir, { recursive: true, force: true });
+});
 
 describe("ensurePluginEntry", () => {
-  it("appends when not present", () => {
-    const { config, result } = ensurePluginEntry({ plugin: ["oh-my-openagent@latest"] });
+  it("adds the entry when absent", () => {
+    const { config, result } = ensurePluginEntry({ plugin: ["other@latest"] });
     expect(result.added).toBe(true);
-    expect(config.plugin).toEqual(["oh-my-openagent@latest", PLUGIN_REGISTRY_ENTRY]);
+    expect(config.plugin).toEqual(["other@latest", PLUGIN_REGISTRY_ENTRY]);
   });
 
-  it("is idempotent on identical entry", () => {
-    const { result } = ensurePluginEntry({ plugin: [PLUGIN_REGISTRY_ENTRY] });
-    expect(result.added).toBe(false);
+  it("is idempotent", () => {
+    const first = ensurePluginEntry({ plugin: [] });
+    const second = ensurePluginEntry(first.config);
+    expect(second.result.added).toBe(false);
+    expect(second.config.plugin).toEqual(first.config.plugin);
   });
 
-  it("treats different version tags of same package as already-present", () => {
+  it("treats version-pinned entries as present", () => {
     const { result } = ensurePluginEntry({
-      plugin: ["@dylanrussell/omo-router@0.0.1"],
+      plugin: ["@dylanrussell/agent-router@1.0.0"],
     });
     expect(result.added).toBe(false);
   });
 
-  it("creates plugin array if config has none", () => {
-    const { config, result } = ensurePluginEntry({});
-    expect(result.added).toBe(true);
+  it("creates the plugin array when missing", () => {
+    const { config } = ensurePluginEntry({});
     expect(config.plugin).toEqual([PLUGIN_REGISTRY_ENTRY]);
   });
 });
 
-describe("ensureOpenrouterModels", () => {
-  it("adds missing model entries with empty-object value", () => {
-    const { config, result } = ensureOpenrouterModels(
-      { provider: { openrouter: { models: { "openai/gpt-5.4": {} } } } },
-      ["openai/gpt-5.4", "anthropic/claude-haiku-4.5"],
-    );
-    expect(result.added).toEqual(["anthropic/claude-haiku-4.5"]);
-    const models = (config.provider as { openrouter: { models: Record<string, unknown> } })
-      .openrouter.models;
-    expect(models).toEqual({
-      "openai/gpt-5.4": {},
-      "anthropic/claude-haiku-4.5": {},
+describe("removePluginEntry", () => {
+  it("removes the legacy omo-router entry regardless of version tag", () => {
+    const { config, result } = removePluginEntry({
+      plugin: ["@dylanrussell/omo-router@latest", "keep@latest"],
     });
+    expect(result.removed).toEqual(["@dylanrussell/omo-router@latest"]);
+    expect(config.plugin).toEqual(["keep@latest"]);
   });
 
-  it("creates provider/openrouter/models scaffold if absent", () => {
-    const { config, result } = ensureOpenrouterModels({}, ["openai/gpt-oss-120b:free"]);
-    expect(result.added).toEqual(["openai/gpt-oss-120b:free"]);
-    const models = (config.provider as { openrouter: { models: Record<string, unknown> } })
-      .openrouter.models;
-    expect(models["openai/gpt-oss-120b:free"]).toEqual({});
+  it("no-ops when absent", () => {
+    const input = { plugin: ["keep@latest"] };
+    const { config, result } = removePluginEntry(input);
+    expect(result.removed).toEqual([]);
+    expect(config).toBe(input);
   });
 
-  it("is idempotent — second run adds nothing", () => {
-    const first = ensureOpenrouterModels({}, ["a", "b"]);
-    const second = ensureOpenrouterModels(first.config, ["a", "b"]);
-    expect(second.result.added).toEqual([]);
+  it("removes an arbitrary named package", () => {
+    const { config } = removePluginEntry({ plugin: ["foo@1.2.3", "bar"] }, "foo");
+    expect(config.plugin).toEqual(["bar"]);
+  });
+
+  it("exports the legacy name it targets by default", () => {
+    expect(LEGACY_PLUGIN_NPM_NAME).toBe("@dylanrussell/omo-router");
   });
 });
 
-describe("readOpencodeJson + writeOpencodeJson", () => {
-  it("returns null when file is missing", async () => {
-    const dir = tmp();
-    try {
-      expect(await readOpencodeJson(path.join(dir, "missing.json"))).toBeNull();
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+describe("read/writeOpencodeJson", () => {
+  it("returns null for a missing file", async () => {
+    expect(await readOpencodeJson(path.join(dir, "nope.json"))).toBeNull();
   });
 
-  it("round-trips a real-world-shaped config", async () => {
-    const dir = tmp();
-    try {
-      const p = path.join(dir, "opencode.json");
-      const cfg = {
-        $schema: "https://opencode.ai/config.json",
-        plugin: ["oh-my-openagent@latest"],
-        provider: { openrouter: { models: { "openai/gpt-5.4": {} } } },
-      };
-      writeFileSync(p, JSON.stringify(cfg));
-      const read = await readOpencodeJson(p);
-      expect(read).toMatchObject(cfg);
-      await writeOpencodeJson(p, { ...read, foo: "bar" });
-      const text = readFileSync(p, "utf8");
-      expect(JSON.parse(text)).toMatchObject({ foo: "bar", plugin: ["oh-my-openagent@latest"] });
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
+  it("preserves unrelated keys through a round-trip", async () => {
+    const p = path.join(dir, "opencode.json");
+    writeFileSync(
+      p,
+      JSON.stringify({
+        plugin: ["a"],
+        default_agent: "Omni",
+        provider: { openrouter: { models: { x: {} } } },
+      }),
+    );
+    const cfg = await readOpencodeJson(p);
+    expect(cfg).not.toBeNull();
+    const { config } = ensurePluginEntry(cfg ?? {});
+    await writeOpencodeJson(p, config);
+    const after = JSON.parse(readFileSync(p, "utf8"));
+    expect(after.default_agent).toBe("Omni");
+    expect(after.provider.openrouter.models.x).toEqual({});
+    expect(after.plugin).toContain(PLUGIN_REGISTRY_ENTRY);
+  });
+});
+
+describe("ensureTuiJsonPluginEntry", () => {
+  it("creates tui.json when absent", async () => {
+    const p = path.join(dir, "tui.json");
+    const result = await ensureTuiJsonPluginEntry(p);
+    expect(result.added).toBe(true);
+    const parsed = JSON.parse(readFileSync(p, "utf8"));
+    expect(parsed.plugin).toEqual([PLUGIN_REGISTRY_ENTRY]);
+    expect(parsed.$schema).toBeDefined();
+  });
+
+  it("is idempotent", async () => {
+    const p = path.join(dir, "tui.json");
+    await ensureTuiJsonPluginEntry(p);
+    const second = await ensureTuiJsonPluginEntry(p);
+    expect(second.added).toBe(false);
+    const parsed = JSON.parse(readFileSync(p, "utf8"));
+    expect(parsed.plugin).toHaveLength(1);
+  });
+
+  it("swaps the legacy omo-router entry for the new one", async () => {
+    const p = path.join(dir, "tui.json");
+    writeFileSync(p, JSON.stringify({ plugin: ["@dylanrussell/omo-router@latest"] }));
+    await ensureTuiJsonPluginEntry(p);
+    const parsed = JSON.parse(readFileSync(p, "utf8"));
+    expect(parsed.plugin).toEqual([PLUGIN_REGISTRY_ENTRY]);
   });
 });

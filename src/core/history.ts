@@ -1,10 +1,11 @@
 /**
- * Switch history: rolling log of recent `oh-my-openagent.json` snapshots.
+ * Switch history: rolling log of the agent→model mappings each apply
+ * displaced.
  *
- * Every `omo-router use <new>` writes the *current* (about-to-be-displaced)
- * `oh-my-openagent.json` here under a filename that encodes the timestamp and
- * the from→to transition. `omo-router back` and `omo-router restore` read
- * from this directory.
+ * Every `agent-router use <new>` writes the *current* (about-to-be-displaced)
+ * mapping here — capture-shaped JSON — under a filename that encodes the
+ * timestamp and the from→to transition. `agent-router back` walks this
+ * directory's names to compute multi-step reverts.
  *
  * Why filenames carry the metadata (vs. a separate index.json):
  *   - `ls -t history/` already gives chronological order.
@@ -12,11 +13,11 @@
  *   - The user can delete history entries manually if they care to.
  */
 
-import { mkdir, readFile, readdir, unlink } from "node:fs/promises";
+import { mkdir, readdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import { atomicWriteFile } from "./atomic-write.js";
 import { timestampStamp } from "./backups.js";
-import { HistoryEntryNotFoundError, IOError } from "./errors.js";
+import { IOError } from "./errors.js";
 
 export interface HistoryEntry {
   /** Filename without `.json` extension. Sortable: lex order = chronological. */
@@ -40,9 +41,9 @@ export interface HistoryEntry {
  */
 function filename(fromStack: string, toStack: string, when: Date = new Date()): string {
   const stamp = timestampStamp(when);
-  // Stack names are user-supplied. Sanitize lightly so filenames stay reasonable.
-  // We allow alphanumerics, dash, underscore, dot, and parentheses (for the
-  // `(restored:<id>)` sentinel). Everything else collapses to `_`.
+  // Stack names are user-supplied. Sanitize lightly so filenames stay
+  // reasonable. We allow alphanumerics, dash, underscore, dot, and
+  // parentheses (for the `(none)` label). Everything else collapses to `_`.
   const safe = (s: string) => s.replace(/[^A-Za-z0-9._()-]/g, "_");
   return `${stamp}__${safe(fromStack)}-to-${safe(toStack)}.json`;
 }
@@ -100,22 +101,6 @@ export async function listHistory(historyDir: string): Promise<HistoryEntry[]> {
   // Sort descending by timestamp (which is in lex-sortable ISO form).
   entries.sort((a, b) => (a.timestamp < b.timestamp ? 1 : a.timestamp > b.timestamp ? -1 : 0));
   return entries;
-}
-
-/**
- * Read raw content of a history entry by its id (filename stem).
- * Throws `HistoryEntryNotFoundError` if the id doesn't resolve.
- */
-export async function readHistoryEntry(historyDir: string, id: string): Promise<string> {
-  const filePath = path.join(historyDir, `${id}.json`);
-  try {
-    return await readFile(filePath, "utf8");
-  } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new HistoryEntryNotFoundError(id);
-    }
-    throw new IOError(`Failed to read history entry ${id}: ${(cause as Error).message}`, cause);
-  }
 }
 
 /**

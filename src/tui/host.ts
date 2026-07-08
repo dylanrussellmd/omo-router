@@ -52,7 +52,7 @@ export interface DialogStack {
   setSize?(size: "medium" | "large" | "xlarge"): void;
 }
 
-export interface OmoTuiApi {
+export interface RouterTuiApi {
   readonly slots: {
     register(plugin: { order?: number; slots: Record<string, () => unknown> }): unknown;
   };

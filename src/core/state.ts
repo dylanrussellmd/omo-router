@@ -2,10 +2,9 @@
  * state.json read/write.
  *
  * `state.json` is the single pointer that says which stack is currently
- * "active" (i.e. its content was most recently copied into
- * `oh-my-openagent.json`). Every CLI command that touches the live config
- * updates this file atomically so concurrent CLIs and the plugin agree on
- * what's active.
+ * "active" (i.e. its models were most recently applied to the agent files'
+ * frontmatter). Every CLI command that switches stacks updates this file
+ * atomically so concurrent CLIs and the plugin agree on what's active.
  */
 
 import { existsSync } from "node:fs";

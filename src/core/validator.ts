@@ -15,7 +15,7 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { ModelValidationError } from "./errors.js";
-import type { ModelEntry, StackFile } from "./schema.js";
+import type { StackFile } from "./schema.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -28,7 +28,7 @@ export interface ValidateOptions {
 }
 
 export interface MissingModel {
-  /** Dotted location inside the stack — e.g., `agents.oracle.fallback_models[0].model`. */
+  /** Dotted location inside the stack — e.g., `agents.oracle.model`. */
   readonly path: string;
   /** The unreachable model ID. */
   readonly modelId: string;
@@ -63,30 +63,11 @@ export function parseModelList(stdout: string): Set<string> {
   return out;
 }
 
-/**
- * Recursively collect every `(path, modelId)` pair from the stack so we can
- * report misses with their structural location. This walks both `agents.*`
- * and `categories.*` plus their nested `fallback_models[]` arrays.
- */
+/** Collect every `(path, modelId)` pair from a stack's `agents` record. */
 export function collectModelRefs(stack: StackFile): Array<MissingModel> {
   const refs: Array<MissingModel> = [];
-
-  const walkEntry = (root: string, key: string, entry: ModelEntry): void => {
-    refs.push({ path: `${root}.${key}.model`, modelId: entry.model });
-    const fallbacks = entry.fallback_models ?? [];
-    fallbacks.forEach((fb, idx) => {
-      refs.push({
-        path: `${root}.${key}.fallback_models[${idx}].model`,
-        modelId: fb.model,
-      });
-    });
-  };
-
-  if (stack.agents) {
-    for (const [k, v] of Object.entries(stack.agents)) walkEntry("agents", k, v);
-  }
-  if (stack.categories) {
-    for (const [k, v] of Object.entries(stack.categories)) walkEntry("categories", k, v);
+  for (const [k, v] of Object.entries(stack.agents)) {
+    refs.push({ path: `agents.${k}.model`, modelId: v.model });
   }
   return refs;
 }
@@ -111,7 +92,7 @@ export async function validateStack(
 
 /**
  * Convenience: validate and throw `ModelValidationError` on failure. Used by
- * the pre-switch gate in `stack-manager.switchTo`.
+ * the pre-apply gate in `stack-manager.applyStack`.
  */
 export async function validateStackOrThrow(
   stackName: string,

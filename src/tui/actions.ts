@@ -3,54 +3,38 @@
  * unit-testable. Dialog flows in dialogs.ts call these.
  */
 
-import type { ModelEntry, StackFile } from "../core/schema.js";
-
-export interface StackEntryRef {
-  readonly kind: "agents" | "categories";
-  readonly key: string;
-}
+import type { StackFile } from "../core/schema.js";
 
 export interface ModelTarget {
-  readonly ref: StackEntryRef;
+  readonly agent: string;
   readonly model: string;
-  readonly fallbackCount: number;
 }
 
-export function targetLabel(ref: StackEntryRef): string {
-  return `${ref.kind}.${ref.key}`;
+export function targetLabel(target: Pick<ModelTarget, "agent">): string {
+  return target.agent;
 }
 
 export function listModelTargets(stack: StackFile): ModelTarget[] {
-  const out: ModelTarget[] = [];
-  const walk = (kind: StackEntryRef["kind"], entries?: Record<string, ModelEntry>) => {
-    for (const [key, entry] of Object.entries(entries ?? {})) {
-      out.push({
-        ref: { kind, key },
-        model: entry.model,
-        fallbackCount: entry.fallback_models?.length ?? 0,
-      });
-    }
-  };
-  walk("agents", stack.agents);
-  walk("categories", stack.categories);
-  return out;
+  return Object.entries(stack.agents).map(([agent, entry]) => ({
+    agent,
+    model: entry.model,
+  }));
 }
 
 /**
- * Replace the primary model of one entry, preserving every other key
- * (fallbacks, variants, unknown passthrough fields) untouched.
+ * Replace the model of one agent entry, preserving every other key
+ * (unknown passthrough fields) untouched.
  */
-export function applyModelEdit(stack: StackFile, ref: StackEntryRef, model: string): StackFile {
-  const group = stack[ref.kind];
-  const entry = group?.[ref.key];
-  if (!group || !entry) {
-    throw new Error(`No entry "${targetLabel(ref)}" in stack`);
+export function applyModelEdit(stack: StackFile, agent: string, model: string): StackFile {
+  const entry = stack.agents[agent];
+  if (!entry) {
+    throw new Error(`No entry "${agent}" in stack`);
   }
   return {
     ...stack,
-    [ref.kind]: {
-      ...group,
-      [ref.key]: { ...entry, model },
+    agents: {
+      ...stack.agents,
+      [agent]: { ...entry, model },
     },
   };
 }

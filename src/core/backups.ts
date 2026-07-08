@@ -1,9 +1,9 @@
 /**
  * One-shot timestamped backups of opencode config files.
  *
- * Mirrors the convention the user already employs (the `bunx oh-my-opencode
- * install` workflow drops backups under `~/.config/opencode/.backups/<stamp>/`),
- * so files dropped here are recognizable to the user and to that tool.
+ * Backups land under `~/.config/opencode/.backups/<stamp>/` — the same
+ * convention other opencode installers use, so files dropped here are
+ * recognizable to the user.
  */
 
 import { existsSync } from "node:fs";

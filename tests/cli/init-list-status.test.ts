@@ -1,108 +1,108 @@
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
-import { describe, expect, it } from "vitest";
-import { setupCliFixture } from "./helpers.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { type CliFixture, setupCliFixture } from "./helpers.js";
 
-describe("init / list / status / show / path", () => {
-  it("init creates state, drops 3 seeds, copies premium to live, edits opencode.json", () => {
-    const fx = setupCliFixture();
-    try {
-      const r = fx.run("init");
-      expect(r.status).toBe(0);
-      expect(r.stdout).toMatch(/dropped \d+ seed/);
-      const stacksDir = path.join(fx.omoHome, "stacks");
-      expect(existsSync(path.join(stacksDir, "premium.json"))).toBe(true);
-      expect(existsSync(path.join(stacksDir, "openrouter-cheap.json"))).toBe(true);
-      expect(existsSync(path.join(stacksDir, "free-only.json"))).toBe(true);
+let fx: CliFixture;
 
-      const state = JSON.parse(readFileSync(path.join(fx.omoHome, "state.json"), "utf8"));
-      expect(state.active).toBe("premium");
+beforeEach(() => {
+  fx = setupCliFixture();
+});
 
-      const live = JSON.parse(
-        readFileSync(path.join(fx.opencodeConfigDir, "oh-my-openagent.json"), "utf8"),
-      );
-      const premium = JSON.parse(readFileSync(path.join(stacksDir, "premium.json"), "utf8"));
-      expect(live).toEqual(premium);
+afterEach(() => {
+  fx.cleanup();
+});
 
-      const oc = JSON.parse(readFileSync(path.join(fx.opencodeConfigDir, "opencode.json"), "utf8"));
-      expect(oc.plugin).toContain("@dylanrussell/omo-router@latest");
-      expect(oc.provider.openrouter.models).toHaveProperty("anthropic/claude-haiku-4.5");
-      expect(oc.provider.openrouter.models).toHaveProperty("openai/gpt-oss-120b:free");
-    } finally {
-      fx.cleanup();
-    }
+describe("agent-router init", () => {
+  it("captures current models into a default stack and registers the plugin", () => {
+    const r = fx.run("init");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("captured 2 agents");
+
+    const stack = JSON.parse(readFileSync(path.join(fx.stacksDir, "default.json"), "utf8"));
+    expect(stack.agents).toEqual({ Omni: { model: "a/one" }, oracle: { model: "b/two" } });
+
+    const opencodeJson = JSON.parse(
+      readFileSync(path.join(fx.opencodeConfigDir, "opencode.json"), "utf8"),
+    );
+    expect(opencodeJson.plugin).toContain("@dylanrussell/agent-router@latest");
+    expect(opencodeJson.plugin).not.toContain("@dylanrussell/omo-router@latest");
+    expect(opencodeJson.default_agent).toBe("Omni");
+
+    const tuiJson = JSON.parse(readFileSync(path.join(fx.opencodeConfigDir, "tui.json"), "utf8"));
+    expect(tuiJson.plugin).toContain("@dylanrussell/agent-router@latest");
+
+    expect(existsSync(path.join(fx.routerHome, "history"))).toBe(true);
   });
 
-  it("init is idempotent without --force", () => {
-    const fx = setupCliFixture();
-    try {
-      fx.run("init");
-      const r = fx.run("init");
-      expect(r.status).toBe(0);
-      expect(r.stdout).toMatch(/already initialized/);
-    } finally {
-      fx.cleanup();
-    }
+  it("is idempotent", () => {
+    expect(fx.run("init").status).toBe(0);
+    const second = fx.run("init");
+    expect(second.status).toBe(0);
+    expect(second.stdout).toContain("already initialized");
+    const opencodeJson = JSON.parse(
+      readFileSync(path.join(fx.opencodeConfigDir, "opencode.json"), "utf8"),
+    );
+    expect(opencodeJson.plugin.filter((p: string) => p.includes("agent-router"))).toHaveLength(1);
   });
 
-  it("list marks active with *", () => {
-    const fx = setupCliFixture();
-    try {
-      fx.run("init");
-      const r = fx.run("list");
-      expect(r.status).toBe(0);
-      expect(r.stdout).toMatch(/^\* premium$/m);
-      expect(r.stdout).toMatch(/^ {2}openrouter-cheap$/m);
-    } finally {
-      fx.cleanup();
-    }
+  it("--no-edit-opencode-json leaves configs alone", () => {
+    const r = fx.run("init", "--no-edit-opencode-json");
+    expect(r.status).toBe(0);
+    const opencodeJson = JSON.parse(
+      readFileSync(path.join(fx.opencodeConfigDir, "opencode.json"), "utf8"),
+    );
+    expect(opencodeJson.plugin).toEqual(["@dylanrussell/omo-router@latest"]);
+    expect(existsSync(path.join(fx.opencodeConfigDir, "tui.json"))).toBe(false);
+  });
+});
+
+describe("agent-router list/status/show/current", () => {
+  it("list shows the active marker", () => {
+    fx.run("init");
+    const r = fx.run("list");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("* default");
   });
 
-  it("status prints active stack name", () => {
-    const fx = setupCliFixture();
-    try {
-      fx.run("init");
-      const r = fx.run("status");
-      expect(r.status).toBe(0);
-      expect(r.stdout.trim()).toBe("premium");
-    } finally {
-      fx.cleanup();
-    }
+  it("list hints when no stacks exist", () => {
+    const r = fx.run("list");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("no stacks");
   });
 
-  it("show <name> dumps stack JSON", () => {
-    const fx = setupCliFixture();
-    try {
-      fx.run("init");
-      const r = fx.run("show", "free-only");
-      expect(r.status).toBe(0);
-      const parsed = JSON.parse(r.stdout);
-      expect(parsed.agents.sisyphus).toBeDefined();
-    } finally {
-      fx.cleanup();
-    }
+  it("status prints the active name or (none)", () => {
+    expect(fx.run("status").stdout.trim()).toBe("(none)");
+    fx.run("init");
+    expect(fx.run("status").stdout.trim()).toBe("default");
   });
 
-  it("path prints all paths", () => {
-    const fx = setupCliFixture();
-    try {
-      const r = fx.run("path");
-      expect(r.status).toBe(0);
-      expect(r.stdout).toMatch(/omoHome/);
-      expect(r.stdout).toMatch(/stacksDir/);
-    } finally {
-      fx.cleanup();
-    }
+  it("show pretty-prints a stack", () => {
+    fx.run("init");
+    const r = fx.run("show", "default");
+    expect(r.status).toBe(0);
+    expect(JSON.parse(r.stdout).agents.Omni.model).toBe("a/one");
   });
 
-  it("--version prints version string", () => {
-    const fx = setupCliFixture();
-    try {
-      const r = fx.run("--version");
-      expect(r.status).toBe(0);
-      expect(r.stdout).toMatch(/omo-router\/\d+\.\d+\.\d+/);
-    } finally {
-      fx.cleanup();
-    }
+  it("show for a missing stack exits 2", () => {
+    fx.run("init");
+    const r = fx.run("show", "ghost");
+    expect(r.status).toBe(2);
+    expect(r.stderr).toContain("not found");
+  });
+
+  it("current prints the frontmatter mapping", () => {
+    const r = fx.run("current");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("Omni");
+    expect(r.stdout).toContain("a/one");
+    expect(r.stdout).toContain("oracle");
+  });
+
+  it("path prints every resolved path", () => {
+    const r = fx.run("path");
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain(fx.routerHome);
+    expect(r.stdout).toContain(fx.agentsDir);
   });
 });

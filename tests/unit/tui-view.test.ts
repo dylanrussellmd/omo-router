@@ -15,7 +15,7 @@ describe("buildSidebarNodes", () => {
       bootActive: "premium",
     });
     const texts = nodes.map((n) => n.text);
-    expect(texts[0]).toBe("omo-router");
+    expect(texts[0]).toBe("agent-router");
     expect(texts).toContain(" ▣ premium");
     expect(texts).toContain(" 2 stacks");
   });
@@ -91,7 +91,7 @@ describe("materialize", () => {
     expect(root.children).toHaveLength(3);
     const first = root.children[0] as FakeNode;
     expect(first.tag).toBe("text");
-    expect(first.children).toContain("omo-router");
+    expect(first.children).toContain("agent-router");
   });
 
   it("skips undefined props", () => {

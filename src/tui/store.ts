@@ -1,15 +1,14 @@
 /**
  * Snapshot + polling layer for the TUI sidebar.
  *
- * Polling (not fs.watch): omo-router writes state.json atomically via
+ * Polling (not fs.watch): agent-router writes state.json atomically via
  * temp-file + rename, and Bun's fs.watch drops the rename-to-target event
  * (verified: Bun 1.3.14 reports only the temp file, Node reports both), so a
  * watcher filtered on "state.json" never fires inside opencode. A 1.5s poll
- * of two tiny reads is the reliable alternative — the same pattern
- * oh-my-openagent's TUI sidebar uses in production.
+ * of two tiny reads is the reliable alternative.
  */
 
-import type { OmoPaths } from "../core/paths.js";
+import type { RouterPaths } from "../core/paths.js";
 import { getActiveStackName, listStacks } from "../core/stack-manager.js";
 
 export interface StackSnapshot {
@@ -23,7 +22,7 @@ export function snapshotKey(active: string | null, stacks: readonly string[]): s
 }
 
 /** Error-tolerant read: never throws, degrades to `(none)` + empty list. */
-export async function readStackSnapshot(paths: OmoPaths): Promise<StackSnapshot> {
+export async function readStackSnapshot(paths: RouterPaths): Promise<StackSnapshot> {
   const [active, stacks] = await Promise.all([
     getActiveStackName(paths).catch(() => null),
     listStacks(paths).catch(() => [] as string[]),

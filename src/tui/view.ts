@@ -35,7 +35,7 @@ export function restartRequired(snapshot: StackSnapshot, ctx: SidebarContext): b
 export function buildSidebarNodes(snapshot: StackSnapshot, ctx: SidebarContext): ViewNode[] {
   const theme = ctx.theme ?? {};
   const nodes: ViewNode[] = [
-    text("omo-router", { fg: theme.textMuted }),
+    text("agent-router", { fg: theme.textMuted }),
     text(` ▣ ${snapshot.active ?? "(none)"}`, { fg: theme.success }),
   ];
   if (restartRequired(snapshot, ctx)) {

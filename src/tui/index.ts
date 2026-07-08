@@ -1,12 +1,13 @@
 /**
- * TUI plugin entry for omo-router (opencode >= 1.17).
+ * TUI plugin entry for agent-router (opencode >= 1.17).
  *
  * Loaded by opencode's TUI runtime via package.json `exports["./tui"]` and a
- * `tui.json` plugin[] entry (`omo-router init` writes it). Renders the active
- * stack into the sidebar, polls for external changes (CLI/agent switches),
- * and registers the /omo-* command set (switch, view, edit, back, validate,
- * status). Every host call is guarded so a TUI API change degrades to
- * missing features, never a crash — see host.ts for the API-typing stance.
+ * `tui.json` plugin[] entry (`agent-router init` writes it). Renders the
+ * active stack into the sidebar, polls for external changes (CLI/agent
+ * switches), and registers the /agent-* command set (switch, view, edit,
+ * back, validate, status). Every host call is guarded so a TUI API change
+ * degrades to missing features, never a crash — see host.ts for the
+ * API-typing stance.
  */
 
 import { resolvePathsWithConfig } from "../core/config.js";
@@ -19,7 +20,7 @@ import {
   openStackViewer,
   openValidator,
 } from "./dialogs.js";
-import type { OmoTuiApi, TuiCommandEntry } from "./host.js";
+import type { RouterTuiApi, TuiCommandEntry } from "./host.js";
 import { type SolidRuntime, materialize } from "./render.js";
 import { createSidebarPoller, readStackSnapshot } from "./store.js";
 import { buildSidebarNodes } from "./view.js";
@@ -29,11 +30,11 @@ const SIDEBAR_ORDER = 850;
 
 /**
  * TUI plugins have no visible stderr; opencode swallows console output. When
- * OMO_TUI_DEBUG is set, append trace lines to that file so failures inside
- * tui() are diagnosable at all.
+ * AGENT_ROUTER_TUI_DEBUG (legacy OMO_TUI_DEBUG) is set, append trace lines to
+ * that file so failures inside tui() are diagnosable at all.
  */
 function debugLog(message: string): void {
-  const target = process.env.OMO_TUI_DEBUG;
+  const target = process.env.AGENT_ROUTER_TUI_DEBUG ?? process.env.OMO_TUI_DEBUG;
   if (!target) return;
   import("node:fs")
     .then((fs) => fs.appendFileSync(target, `${new Date().toISOString()} ${message}\n`))
@@ -54,64 +55,64 @@ async function importHostSolid(): Promise<SolidRuntime | null> {
   }
 }
 
-function buildCommands(api: OmoTuiApi, deps: DialogDeps, status: () => void): TuiCommandEntry[] {
+function buildCommands(api: RouterTuiApi, deps: DialogDeps, status: () => void): TuiCommandEntry[] {
   const commands: TuiCommandEntry[] = [
     {
-      title: "omo: status",
-      value: "omo.status",
-      description: "Show the active omo-router stack",
-      category: "omo-router",
-      slash: { name: "omo-status" },
+      title: "agent-router: status",
+      value: "agent-router.status",
+      description: "Show the active agent-router stack",
+      category: "agent-router",
+      slash: { name: "agent-status" },
       onSelect: status,
     },
   ];
   if (!canOpenDialogs(api)) return commands;
   commands.push(
     {
-      title: "omo: switch stack",
-      value: "omo.switch",
-      description: "Switch the active oh-my-openagent model stack",
-      category: "omo-router",
-      slash: { name: "omo-switch", aliases: ["omo"] },
+      title: "agent-router: switch stack",
+      value: "agent-router.switch",
+      description: "Apply a different model stack to your agents",
+      category: "agent-router",
+      slash: { name: "agent-switch", aliases: ["ar"] },
       onSelect: () => openStackSwitcher(deps),
     },
     {
-      title: "omo: view stack",
-      value: "omo.view",
-      description: "Inspect a stack's agent/category model assignments",
-      category: "omo-router",
-      slash: { name: "omo-view" },
+      title: "agent-router: view stack",
+      value: "agent-router.view",
+      description: "Inspect a stack's agent → model assignments",
+      category: "agent-router",
+      slash: { name: "agent-view" },
       onSelect: () => openStackViewer(deps),
     },
     {
-      title: "omo: edit stack",
-      value: "omo.edit",
+      title: "agent-router: edit stack",
+      value: "agent-router.edit",
       description: "Reassign a model inside a stack",
-      category: "omo-router",
-      slash: { name: "omo-edit" },
+      category: "agent-router",
+      slash: { name: "agent-edit" },
       onSelect: () => openStackEditor(deps),
     },
     {
-      title: "omo: undo last switch",
-      value: "omo.back",
+      title: "agent-router: undo last switch",
+      value: "agent-router.back",
       description: "Revert to the previously active stack",
-      category: "omo-router",
-      slash: { name: "omo-back" },
+      category: "agent-router",
+      slash: { name: "agent-back" },
       onSelect: () => openBackConfirm(deps),
     },
     {
-      title: "omo: validate stack",
-      value: "omo.validate",
+      title: "agent-router: validate stack",
+      value: "agent-router.validate",
       description: "Check a stack's model IDs against reachable models",
-      category: "omo-router",
-      slash: { name: "omo-validate" },
+      category: "agent-router",
+      slash: { name: "agent-validate" },
       onSelect: () => openValidator(deps),
     },
   );
   return commands;
 }
 
-export const tui = async (api: OmoTuiApi): Promise<void> => {
+export const tui = async (api: RouterTuiApi): Promise<void> => {
   debugLog("tui() entered");
   const solid = await importHostSolid();
   if (!solid) return;
@@ -157,7 +158,7 @@ export const tui = async (api: OmoTuiApi): Promise<void> => {
       if (next.active !== prev.active) {
         const suffix = next.active === bootActive ? "" : " — restart opencode to apply";
         api.ui.toast({
-          title: "omo-router",
+          title: "agent-router",
           message: `stack → ${next.active ?? "(none)"}${suffix}`,
           variant: "info",
         });
@@ -168,7 +169,7 @@ export const tui = async (api: OmoTuiApi): Promise<void> => {
   const deps: DialogDeps = { api, paths, refresh };
   const status = () =>
     api.ui.toast({
-      title: "omo-router",
+      title: "agent-router",
       message: `active: ${snapshot.active ?? "(none)"} · stacks: ${snapshot.stacks.join(", ") || "(none)"}`,
       variant: "info",
     });
@@ -184,9 +185,9 @@ export const tui = async (api: OmoTuiApi): Promise<void> => {
   debugLog(`tui() init complete — active=${snapshot.active ?? "(none)"}`);
 };
 
-const omoRouterTui = {
-  id: "omo-router:tui",
+const agentRouterTui = {
+  id: "agent-router:tui",
   tui,
 };
 
-export default omoRouterTui;
+export default agentRouterTui;

@@ -1,5 +1,5 @@
 /**
- * Typed errors used across the omo-router core.
+ * Typed errors used across the agent-router core.
  *
  * Why typed errors instead of plain `Error`? The CLI maps each subclass to a
  * specific exit code (see `src/cli.ts`); the plugin tools map them to
@@ -7,17 +7,17 @@
  * force string-matching at the boundary, which is brittle.
  *
  * All errors below carry an `exitCode` static so the CLI can do
- * `if (err instanceof OmoError) process.exit(err.constructor.exitCode)`.
+ * `if (err instanceof RouterError) process.exit(err.constructor.exitCode)`.
  */
 
-export abstract class OmoError extends Error {
+export abstract class RouterError extends Error {
   /** CLI exit code for this error class. Subclasses override. */
   static readonly exitCode: number = 1;
-  override readonly name: string = "OmoError";
+  override readonly name: string = "RouterError";
 }
 
 /** User passed a stack name that doesn't exist on disk. */
-export class StackNotFoundError extends OmoError {
+export class StackNotFoundError extends RouterError {
   static override readonly exitCode = 2;
   override readonly name = "StackNotFoundError";
   constructor(
@@ -30,26 +30,34 @@ export class StackNotFoundError extends OmoError {
   }
 }
 
-/** History entry id that doesn't resolve to a file. */
-export class HistoryEntryNotFoundError extends OmoError {
+/**
+ * An agent `.md` file a stack references is missing, or exists but has no
+ * frontmatter `model:` line to rewrite. `apply` is strict: it fails before
+ * writing anything rather than leaving the suite half-switched.
+ */
+export class AgentFileError extends RouterError {
   static override readonly exitCode = 2;
-  override readonly name = "HistoryEntryNotFoundError";
-  constructor(public readonly id: string) {
-    super(`History entry "${id}" not found.`);
+  override readonly name = "AgentFileError";
+  constructor(
+    public readonly agentName: string,
+    public readonly filePath: string,
+    reason: string,
+  ) {
+    super(`Agent "${agentName}" (${filePath}): ${reason}`);
   }
 }
 
 /** state.json missing or corrupt and the operation needs it. */
-export class NoActiveStackError extends OmoError {
+export class NoActiveStackError extends RouterError {
   static override readonly exitCode = 1;
   override readonly name = "NoActiveStackError";
-  constructor(message = "No active stack. Run `omo-router init` first.") {
+  constructor(message = "No active stack. Run `agent-router init` first.") {
     super(message);
   }
 }
 
 /** A JSON file on disk failed schema validation. */
-export class ValidationError extends OmoError {
+export class ValidationError extends RouterError {
   static override readonly exitCode = 4;
   override readonly name = "ValidationError";
   constructor(
@@ -62,7 +70,7 @@ export class ValidationError extends OmoError {
 }
 
 /** Model IDs in a stack are not reachable through current opencode auth. */
-export class ModelValidationError extends OmoError {
+export class ModelValidationError extends RouterError {
   static override readonly exitCode = 4;
   override readonly name = "ModelValidationError";
   constructor(
@@ -76,7 +84,7 @@ export class ModelValidationError extends OmoError {
 }
 
 /** Filesystem op failed (read/write/permission/etc.). */
-export class IOError extends OmoError {
+export class IOError extends RouterError {
   static override readonly exitCode = 3;
   override readonly name = "IOError";
   readonly causedBy: unknown;
@@ -87,7 +95,7 @@ export class IOError extends OmoError {
 }
 
 /** User passed bad arguments or attempted a refused operation (e.g. rm active without --force). */
-export class UserError extends OmoError {
+export class UserError extends RouterError {
   static override readonly exitCode = 1;
   override readonly name = "UserError";
 }

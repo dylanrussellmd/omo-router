@@ -1,74 +1,72 @@
 /**
- * Path resolution for omo-router.
+ * Path resolution for agent-router.
  *
- * Two roots matter:
- *   1. `opencodeConfigDir` — where `oh-my-openagent.json` and `opencode.json` live.
+ * Three roots matter:
+ *   1. `opencodeConfigDir` — where `opencode.json`, `tui.json`, and the
+ *      native `agents/` directory live.
  *      Default: `${XDG_CONFIG_HOME:-~/.config}/opencode`.
  *
- *   2. `omoHome` — where omo-router stores its own state (stacks, history, state.json).
- *      Default: `${opencodeConfigDir}/omo-router`.
- *      Override: `OMO_ROUTER_HOME` env var (used by tests to redirect to tmp).
+ *   2. `agentsDir` — the directory of agent `.md` files whose frontmatter
+ *      `model:` lines agent-router rewrites.
+ *      Default: `${opencodeConfigDir}/agents`.
+ *      Override: `AGENT_ROUTER_AGENTS_DIR` env var, or `agentsDir` in
+ *      config.json (see config.ts).
  *
- *   3. `liveConfigPath` — the active `oh-my-openagent.json` that omo-router
- *      writes on every switch.
- *      Default: `${opencodeConfigDir}/oh-my-openagent.json`.
- *      Override: `OMO_ROUTER_LIVE_CONFIG` env var. Use this when the live config
- *      is managed elsewhere (e.g. a dotfiles dir that opencode symlinks back
- *      into `~/.config/opencode`). Writing through the override keeps the
- *      symlink intact instead of `rename(2)` clobbering it into a real file.
+ *   3. `routerHome` — machine-local state (state.json, history).
+ *      Default: `${opencodeConfigDir}/agent-router`.
+ *      Override: `AGENT_ROUTER_HOME` env var (`OMO_ROUTER_HOME` is honored as
+ *      a legacy fallback for one release).
  *
- * Tests rely on `OMO_ROUTER_HOME` to fully isolate from the user's real config.
- * Production code relies on the default. Never hard-code paths elsewhere — go
- * through `resolvePaths()` so the override always wins.
+ * Stacks are config, history is state — so `stacksDir` is separately
+ * overridable (`AGENT_ROUTER_STACKS_DIR` env / `stacksDir` in config.json),
+ * letting users keep stacks in a dotfiles-managed location while history
+ * stays machine-local. Default: `${routerHome}/stacks`.
+ *
+ * Tests rely on the env overrides to fully isolate from the user's real
+ * config. Never hard-code paths elsewhere — go through `resolvePaths()`.
  */
 
 import { homedir } from "node:os";
 import path from "node:path";
 
-export interface OmoPaths {
-  /** Directory housing `opencode.json` + `oh-my-openagent.json`. */
+export interface RouterPaths {
+  /** Directory housing `opencode.json`, `tui.json`, and `agents/`. */
   readonly opencodeConfigDir: string;
   /** `${opencodeConfigDir}/opencode.json`. */
   readonly opencodeJsonPath: string;
   /**
    * `${opencodeConfigDir}/tui.json` — opencode's TUI config. Since opencode
    * 1.17 the TUI loads its plugins from THIS file's `plugin` array, not from
-   * `opencode.json`. `init` patches both so the sidebar half of omo-router
+   * `opencode.json`. `init` patches both so the sidebar half of agent-router
    * loads alongside the server half.
    */
   readonly tuiJsonPath: string;
-  /**
-   * The live router target — the `oh-my-openagent.json` written on every
-   * switch. Defaults to `${opencodeConfigDir}/oh-my-openagent.json`; override
-   * with `OMO_ROUTER_LIVE_CONFIG` (or `options.liveConfigPath`).
-   */
-  readonly liveConfigPath: string;
+  /** Directory of agent `.md` files (frontmatter `model:` lines are the live target). */
+  readonly agentsDir: string;
   /** Directory `${opencodeConfigDir}/.backups` for installer-style backups. */
   readonly opencodeBackupsDir: string;
-  /** Root for omo-router state (overridable via `OMO_ROUTER_HOME`). */
-  readonly omoHome: string;
-  /** `${omoHome}/state.json`. */
+  /** Root for agent-router state (overridable via `AGENT_ROUTER_HOME`). */
+  readonly routerHome: string;
+  /** `${routerHome}/state.json`. */
   readonly statePath: string;
-  /** `${omoHome}/stacks` — directory of named stack files. */
+  /** Directory of named stack files (overridable via `AGENT_ROUTER_STACKS_DIR`). */
   readonly stacksDir: string;
-  /** `${omoHome}/history` — rolling switch history. */
+  /** `${routerHome}/history` — rolling switch history. */
   readonly historyDir: string;
 }
 
 export interface ResolvePathsOptions {
   /**
    * Override `opencodeConfigDir`. Used by tests that don't want to touch
-   * `~/.config/opencode`. When set, `omoHome` defaults to `${this}/omo-router`
-   * unless `omoHome` is also overridden.
+   * `~/.config/opencode`.
    */
   readonly opencodeConfigDir?: string;
-  /** Direct override for `omoHome`. Wins over both default and OMO_ROUTER_HOME. */
-  readonly omoHome?: string;
-  /**
-   * Direct override for `liveConfigPath`. Wins over both the default and
-   * `OMO_ROUTER_LIVE_CONFIG`.
-   */
-  readonly liveConfigPath?: string;
+  /** Direct override for `routerHome`. Wins over both default and env. */
+  readonly routerHome?: string;
+  /** Direct override for `agentsDir`. Wins over both default and env. */
+  readonly agentsDir?: string;
+  /** Direct override for `stacksDir`. Wins over both default and env. */
+  readonly stacksDir?: string;
   /**
    * Optional environment map for testability. Production callers omit this and
    * we read from `process.env`.
@@ -77,47 +75,41 @@ export interface ResolvePathsOptions {
 }
 
 /**
- * Compute all paths used by omo-router. Pure — no filesystem I/O.
+ * Compute all paths used by agent-router. Pure — no filesystem I/O.
  *
- * Resolution order for `omoHome`:
- *   1. `options.omoHome` (explicit param) — wins.
- *   2. `OMO_ROUTER_HOME` env var.
- *   3. `${opencodeConfigDir}/omo-router`.
- *
- * Resolution order for `opencodeConfigDir`:
- *   1. `options.opencodeConfigDir` (explicit param).
- *   2. `${XDG_CONFIG_HOME}/opencode` if `XDG_CONFIG_HOME` set.
- *   3. `~/.config/opencode`.
- *
- * Resolution order for `liveConfigPath`:
- *   1. `options.liveConfigPath` (explicit param) — wins.
- *   2. `OMO_ROUTER_LIVE_CONFIG` env var.
- *   3. `${opencodeConfigDir}/oh-my-openagent.json`.
+ * Resolution order (each): explicit option → env var → default.
+ *   - `routerHome`: `AGENT_ROUTER_HOME` (legacy `OMO_ROUTER_HOME`) → `${opencodeConfigDir}/agent-router`
+ *   - `agentsDir`:  `AGENT_ROUTER_AGENTS_DIR` → `${opencodeConfigDir}/agents`
+ *   - `stacksDir`:  `AGENT_ROUTER_STACKS_DIR` → `${routerHome}/stacks`
  */
-export function resolvePaths(options: ResolvePathsOptions = {}): OmoPaths {
+export function resolvePaths(options: ResolvePathsOptions = {}): RouterPaths {
   const env = options.env ?? process.env;
 
   const opencodeConfigDir =
     options.opencodeConfigDir ??
     path.join(env.XDG_CONFIG_HOME ?? path.join(homedir(), ".config"), "opencode");
 
-  const omoHome =
-    options.omoHome ?? env.OMO_ROUTER_HOME ?? path.join(opencodeConfigDir, "omo-router");
+  const routerHome =
+    options.routerHome ??
+    env.AGENT_ROUTER_HOME ??
+    env.OMO_ROUTER_HOME ??
+    path.join(opencodeConfigDir, "agent-router");
 
-  const liveConfigPath =
-    options.liveConfigPath ??
-    env.OMO_ROUTER_LIVE_CONFIG ??
-    path.join(opencodeConfigDir, "oh-my-openagent.json");
+  const agentsDir =
+    options.agentsDir ?? env.AGENT_ROUTER_AGENTS_DIR ?? path.join(opencodeConfigDir, "agents");
+
+  const stacksDir =
+    options.stacksDir ?? env.AGENT_ROUTER_STACKS_DIR ?? path.join(routerHome, "stacks");
 
   return {
     opencodeConfigDir,
     opencodeJsonPath: path.join(opencodeConfigDir, "opencode.json"),
     tuiJsonPath: path.join(opencodeConfigDir, "tui.json"),
-    liveConfigPath,
+    agentsDir,
     opencodeBackupsDir: path.join(opencodeConfigDir, ".backups"),
-    omoHome,
-    statePath: path.join(omoHome, "state.json"),
-    stacksDir: path.join(omoHome, "stacks"),
-    historyDir: path.join(omoHome, "history"),
+    routerHome,
+    statePath: path.join(routerHome, "state.json"),
+    stacksDir,
+    historyDir: path.join(routerHome, "history"),
   };
 }

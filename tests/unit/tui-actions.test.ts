@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import type { StackFile } from "../../src/core/schema.js";
 import {
   applyModelEdit,
   collectHostModels,
@@ -7,83 +6,54 @@ import {
   targetLabel,
 } from "../../src/tui/actions.js";
 
-const stack: StackFile = {
-  $schema: "https://example.com/schema.json",
+const STACK = {
   agents: {
-    oracle: {
-      model: "anthropic/claude-opus-4-7",
-      fallback_models: [{ model: "openrouter/openai/gpt-5.4" }],
-      temperature: 0.2,
-    },
-    sisyphus: { model: "anthropic/claude-sonnet-4-6" },
+    Omni: { model: "a/one" },
+    oracle: { model: "b/two", note: "keep" },
   },
-  categories: {
-    quick: { model: "google/gemini-2.5-flash" },
-  },
-} as StackFile;
+};
 
 describe("listModelTargets", () => {
-  it("walks agents then categories with fallback counts", () => {
-    const targets = listModelTargets(stack);
-    expect(targets.map((t) => targetLabel(t.ref))).toEqual([
-      "agents.oracle",
-      "agents.sisyphus",
-      "categories.quick",
+  it("lists one target per agent", () => {
+    const rows = listModelTargets(STACK);
+    expect(rows).toEqual([
+      { agent: "Omni", model: "a/one" },
+      { agent: "oracle", model: "b/two" },
     ]);
-    expect(targets[0].fallbackCount).toBe(1);
-    expect(targets[1].fallbackCount).toBe(0);
-    expect(targets[2].model).toBe("google/gemini-2.5-flash");
   });
 
-  it("handles stacks with only categories", () => {
-    const only: StackFile = { categories: { deep: { model: "x/y" } } } as StackFile;
-    expect(listModelTargets(only)).toHaveLength(1);
+  it("labels targets by agent name", () => {
+    expect(targetLabel({ agent: "oracle" })).toBe("oracle");
   });
 });
 
 describe("applyModelEdit", () => {
-  it("replaces the primary model and preserves everything else", () => {
-    const edited = applyModelEdit(stack, { kind: "agents", key: "oracle" }, "new/model");
-    expect(edited.agents?.oracle.model).toBe("new/model");
-    expect(edited.agents?.oracle.fallback_models).toEqual([{ model: "openrouter/openai/gpt-5.4" }]);
-    expect((edited.agents?.oracle as Record<string, unknown>).temperature).toBe(0.2);
-    expect((edited as Record<string, unknown>).$schema).toBe("https://example.com/schema.json");
-    expect(edited.agents?.sisyphus.model).toBe("anthropic/claude-sonnet-4-6");
+  it("replaces only the model, preserving unknown keys", () => {
+    const next = applyModelEdit(STACK, "oracle", "c/three");
+    expect(next.agents.oracle?.model).toBe("c/three");
+    expect((next.agents.oracle as Record<string, unknown>).note).toBe("keep");
+    expect(next.agents.Omni?.model).toBe("a/one");
+    expect(STACK.agents.oracle.model).toBe("b/two");
   });
 
-  it("does not mutate the input stack", () => {
-    applyModelEdit(stack, { kind: "categories", key: "quick" }, "new/model");
-    expect(stack.categories?.quick.model).toBe("google/gemini-2.5-flash");
-  });
-
-  it("throws for a missing entry", () => {
-    expect(() => applyModelEdit(stack, { kind: "agents", key: "nope" }, "m")).toThrow(
-      /agents\.nope/,
-    );
+  it("throws for unknown agents", () => {
+    expect(() => applyModelEdit(STACK, "ghost", "c/three")).toThrow(/ghost/);
   });
 });
 
 describe("collectHostModels", () => {
-  it("extracts provider/model ids from record-shaped models", () => {
-    const providers = [
-      { id: "anthropic", models: { "claude-opus-4-7": {}, "claude-sonnet-4-6": {} } },
-      { id: "openrouter", models: { "openai/gpt-5.4": {} } },
-    ];
-    expect(collectHostModels(providers)).toEqual([
-      "anthropic/claude-opus-4-7",
-      "anthropic/claude-sonnet-4-6",
-      "openrouter/openai/gpt-5.4",
-    ]);
-  });
-
-  it("extracts from array-shaped models with id fields", () => {
-    const providers = [{ id: "p", models: [{ id: "m1" }, "m2"] }];
-    expect(collectHostModels(providers)).toEqual(["p/m1", "p/m2"]);
-  });
-
-  it("returns empty for garbage input", () => {
+  it("returns [] for unusable input", () => {
     expect(collectHostModels(undefined)).toEqual([]);
     expect(collectHostModels("nope")).toEqual([]);
-    expect(collectHostModels([null, {}, { id: 3 }])).toEqual([]);
+    expect(collectHostModels([])).toEqual([]);
+  });
+
+  it("collects provider/model ids from array-of-models shape", () => {
+    const out = collectHostModels([
+      { id: "openai", models: [{ id: "gpt-5.5" }, "gpt-5.4-mini"] },
+      { id: "anthropic", models: { "claude-fable-5": {} } },
+      { notAnId: true },
+    ]);
+    expect(out).toEqual(["anthropic/claude-fable-5", "openai/gpt-5.4-mini", "openai/gpt-5.5"]);
   });
 });

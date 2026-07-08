@@ -1,7 +1,7 @@
 {
-  "name": "@dylanrussell/omo-router",
-  "version": "0.2.1",
-  "description": "Switch between named stacks of oh-my-openagent.json model assignments. Plugin + CLI for opencode.",
+  "name": "@dylanrussell/agent-router",
+  "version": "1.0.0",
+  "description": "Switch the models assigned to your opencode agents. Named stacks applied to agent frontmatter. Plugin + CLI.",
   "license": "MIT",
   "author": "Dylan Russell",
   "type": "module",
@@ -23,8 +23,7 @@
     }
   },
   "bin": {
-    "omo-router": "dist/cli.js",
-    "omo": "dist/cli.js"
+    "agent-router": "dist/cli.js"
   },
   "files": [
     "dist",
@@ -32,11 +31,11 @@
     "README.md",
     "LICENSE"
   ],
-  "homepage": "https://github.com/dylanrussellmd/omo-router#readme",
-  "bugs": "https://github.com/dylanrussellmd/omo-router/issues",
+  "homepage": "https://github.com/dylanrussellmd/agent-router#readme",
+  "bugs": "https://github.com/dylanrussellmd/agent-router/issues",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/dylanrussellmd/omo-router.git"
+    "url": "git+https://github.com/dylanrussellmd/agent-router.git"
   },
   "scripts": {
     "build": "tsup",
@@ -48,7 +47,6 @@
     "test:unit": "vitest run tests/unit",
     "test:cli": "vitest run tests/cli",
     "test:plugin": "vitest run tests/plugin",
-    "test:seeds": "vitest run tests/seeds",
     "test:watch": "vitest",
     "prepublishOnly": "npm run lint && npm run typecheck && npm run build && npm run test"
   },
@@ -80,8 +78,7 @@
   "keywords": [
     "opencode",
     "opencode-plugin",
-    "oh-my-openagent",
-    "oh-my-opencode",
+    "agents",
     "model-router",
     "llm-router"
   ],

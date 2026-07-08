@@ -1,10 +1,9 @@
 /**
  * Atomic file writes via tmp-then-rename.
  *
- * Why atomic? The user's `oh-my-openagent.json` may be read concurrently by:
- *   - the running `oh-my-openagent` plugin during opencode startup,
- *   - a parallel `omo-router` invocation in another terminal,
- *   - the upstream installer.
+ * Why atomic? The user's agent `.md` files may be read concurrently by:
+ *   - opencode loading agents during startup,
+ *   - a parallel `agent-router` invocation in another terminal.
  *
  * A non-atomic `writeFile` truncates first, so a crash mid-write leaves an
  * empty / partial file and the next opencode startup blows up. Tmp-then-rename
@@ -12,7 +11,7 @@
  * a half-written file. POSIX rename(2) is atomic on the same filesystem.
  *
  * The tmp file lives next to the destination (same dir = same FS) and has a
- * `.omotmp-<pid>-<rand>` suffix so concurrent writers don't collide.
+ * `.artmp-<pid>-<rand>` suffix so concurrent writers don't collide.
  */
 
 import { randomBytes } from "node:crypto";
@@ -56,7 +55,7 @@ export async function atomicWriteFile(destPath: string, contents: string): Promi
 
   const tmp = path.join(
     dir,
-    `.${path.basename(dest)}.omotmp-${process.pid}-${randomBytes(4).toString("hex")}`,
+    `.${path.basename(dest)}.artmp-${process.pid}-${randomBytes(4).toString("hex")}`,
   );
 
   try {
@@ -65,7 +64,7 @@ export async function atomicWriteFile(destPath: string, contents: string): Promi
   } catch (cause) {
     await unlink(tmp).catch(() => {
       // Best-effort cleanup. The tmp suffix means leftover files are
-      // recognizable (`.omotmp-*`) and harmless if we miss one.
+      // recognizable (`.artmp-*`) and harmless if we miss one.
     });
     throw new IOError(`Atomic write failed for ${destPath}: ${(cause as Error).message}`, cause);
   }

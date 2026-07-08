@@ -1,27 +1,14 @@
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { OmoRouterPlugin } from "../../src/plugin.js";
+import AgentRouterPlugin from "../../src/plugin.js";
 
-const FAKE_OPENCODE_MODELS = [
-  "anthropic/claude-opus-4-7",
-  "anthropic/claude-sonnet-4-6",
-  "openrouter/openai/gpt-5.4",
-  "openrouter/google/gemini-2.5-flash",
-  "google/gemini-3-flash-preview",
-  "google/gemini-3.1-pro-preview",
-  "google/gemini-2.5-flash",
-];
+const FAKE_OPENCODE_MODELS = ["a/one", "b/two", "c/three"];
 
-const PREMIUM = {
-  agents: { sisyphus: { model: "anthropic/claude-opus-4-7" } },
-  categories: { quick: { model: "google/gemini-3-flash-preview" } },
-};
-const CHEAP = {
-  agents: { sisyphus: { model: "openrouter/openai/gpt-5.4" } },
-  categories: { quick: { model: "openrouter/google/gemini-2.5-flash" } },
-};
+function agentMd(model: string, name: string): string {
+  return `---\ndescription: ${name} agent\nmode: subagent\nmodel: ${model}\n---\nYou are ${name}.\n`;
+}
 
 interface ToolDef {
   description: string;
@@ -37,60 +24,63 @@ interface PluginReturn {
 }
 
 function setup(): {
-  paths: { liveConfigPath: string; statePath: string; stacksDir: string };
+  agentsDir: string;
+  stacksDir: string;
   cleanup: () => void;
 } {
-  const omoHome = mkdtempSync(path.join(tmpdir(), "omo-plugin-"));
-  const fakeXdg = mkdtempSync(path.join(tmpdir(), "omo-plugin-xdg-"));
-  const binDir = mkdtempSync(path.join(tmpdir(), "omo-plugin-bin-"));
+  const routerHome = mkdtempSync(path.join(tmpdir(), "ar-plugin-"));
+  const agentsDir = mkdtempSync(path.join(tmpdir(), "ar-plugin-agents-"));
+  const binDir = mkdtempSync(path.join(tmpdir(), "ar-plugin-bin-"));
   const prevPath = process.env.PATH ?? "";
-  process.env.OMO_ROUTER_HOME = omoHome;
-  process.env.XDG_CONFIG_HOME = fakeXdg;
+  const prevHome = process.env.AGENT_ROUTER_HOME;
+  const prevAgents = process.env.AGENT_ROUTER_AGENTS_DIR;
+  process.env.AGENT_ROUTER_HOME = routerHome;
+  process.env.AGENT_ROUTER_AGENTS_DIR = agentsDir;
+
   // Stub `opencode` so the validator's default `execFile("opencode", ["models"])`
   // resolves deterministically in any environment, including CI.
   const stubScript = path.join(binDir, "opencode");
   writeFileSync(
     stubScript,
-    `#!/usr/bin/env bash
-if [ "$1" = "models" ]; then
-  cat <<'EOF'
-${FAKE_OPENCODE_MODELS.join("\n")}
-EOF
-  exit 0
-fi
-exit 0
-`,
+    `#!/usr/bin/env bash\nif [ "$1" = "models" ]; then\n  printf '%s\\n' ${FAKE_OPENCODE_MODELS.map((m) => `"${m}"`).join(" ")}\n  exit 0\nfi\nexit 0\n`,
     { mode: 0o755 },
   );
   chmodSync(stubScript, 0o755);
   process.env.PATH = `${binDir}:${prevPath}`;
 
-  mkdirSync(path.join(fakeXdg, "opencode"), { recursive: true });
-  const liveConfigPath = path.join(fakeXdg, "opencode", "oh-my-openagent.json");
-  const statePath = path.join(omoHome, "state.json");
-  const stacksDir = path.join(omoHome, "stacks");
+  writeFileSync(path.join(agentsDir, "Omni.md"), agentMd("a/one", "Omni"));
+  writeFileSync(path.join(agentsDir, "oracle.md"), agentMd("b/two", "oracle"));
+
+  const stacksDir = path.join(routerHome, "stacks");
   mkdirSync(stacksDir, { recursive: true });
-  writeFileSync(path.join(stacksDir, "premium.json"), JSON.stringify(PREMIUM));
-  writeFileSync(path.join(stacksDir, "cheap.json"), JSON.stringify(CHEAP));
-  writeFileSync(liveConfigPath, JSON.stringify(PREMIUM));
   writeFileSync(
-    statePath,
+    path.join(stacksDir, "premium.json"),
+    JSON.stringify({ agents: { Omni: { model: "a/one" }, oracle: { model: "b/two" } } }),
+  );
+  writeFileSync(
+    path.join(stacksDir, "cheap.json"),
+    JSON.stringify({ agents: { Omni: { model: "c/three" }, oracle: { model: "c/three" } } }),
+  );
+  writeFileSync(
+    path.join(routerHome, "state.json"),
     `${JSON.stringify({
       version: 1,
       active: "premium",
       previousActive: null,
       lastSwitchedAt: new Date().toISOString(),
-      lastSnapshottedFrom: null,
     })}\n`,
   );
   return {
-    paths: { liveConfigPath, statePath, stacksDir },
+    agentsDir,
+    stacksDir,
     cleanup: () => {
-      process.env.OMO_ROUTER_HOME = undefined;
-      process.env.XDG_CONFIG_HOME = undefined;
+      if (prevHome === undefined) Reflect.deleteProperty(process.env, "AGENT_ROUTER_HOME");
+      else process.env.AGENT_ROUTER_HOME = prevHome;
+      if (prevAgents === undefined) Reflect.deleteProperty(process.env, "AGENT_ROUTER_AGENTS_DIR");
+      else process.env.AGENT_ROUTER_AGENTS_DIR = prevAgents;
       process.env.PATH = prevPath;
-      rmSync(omoHome, { recursive: true, force: true });
-      rmSync(fakeXdg, { recursive: true, force: true });
+      rmSync(routerHome, { recursive: true, force: true });
+      rmSync(agentsDir, { recursive: true, force: true });
       rmSync(binDir, { recursive: true, force: true });
     },
   };
@@ -150,7 +140,7 @@ const fakeCtx = (client: FakeClient) =>
     directory: "/tmp",
     worktree: "/tmp",
     $: () => ({}),
-  }) as unknown as Parameters<typeof OmoRouterPlugin>[0];
+  }) as unknown as Parameters<typeof AgentRouterPlugin>[0];
 
 async function call(t: ToolDef, args: Record<string, unknown>): Promise<unknown> {
   const r = await t.execute(args);
@@ -158,42 +148,50 @@ async function call(t: ToolDef, args: Record<string, unknown>): Promise<unknown>
   return JSON.parse(r.output);
 }
 
-describe("OmoRouterPlugin", () => {
-  it("returns five tools and logs init message", async () => {
+describe("AgentRouterPlugin", () => {
+  it("returns six tools and logs init message", async () => {
     const { cleanup } = setup();
     try {
       const client = makeFakeClient();
-      const result = (await OmoRouterPlugin(fakeCtx(client))) as unknown as PluginReturn;
-      const toolNames = Object.keys(result.tool).sort();
-      expect(toolNames).toEqual(["omo_back", "omo_list", "omo_status", "omo_use", "omo_validate"]);
-      expect(client.logs.find((l) => l.service === "omo-router")?.message).toBe("init");
+      const result = (await AgentRouterPlugin(fakeCtx(client))) as unknown as PluginReturn;
+      expect(Object.keys(result.tool).sort()).toEqual([
+        "router_back",
+        "router_capture",
+        "router_list",
+        "router_status",
+        "router_use",
+        "router_validate",
+      ]);
+      expect(client.logs.find((l) => l.service === "agent-router")?.message).toBe("init");
     } finally {
       cleanup();
     }
   });
 
-  it("omo_status returns active + available", async () => {
+  it("router_status returns active + available + current mapping", async () => {
     const { cleanup } = setup();
     try {
       const client = makeFakeClient();
-      const r = (await OmoRouterPlugin(fakeCtx(client))) as unknown as PluginReturn;
-      const status = (await call(r.tool.omo_status as ToolDef, {})) as {
+      const r = (await AgentRouterPlugin(fakeCtx(client))) as unknown as PluginReturn;
+      const status = (await call(r.tool.router_status as ToolDef, {})) as {
         active: string | null;
         available: string[];
+        current: Record<string, string>;
       };
       expect(status.active).toBe("premium");
       expect(status.available.sort()).toEqual(["cheap", "premium"]);
+      expect(status.current).toEqual({ Omni: "a/one", oracle: "b/two" });
     } finally {
       cleanup();
     }
   });
 
-  it("omo_list reflects isActive", async () => {
+  it("router_list reflects isActive", async () => {
     const { cleanup } = setup();
     try {
       const client = makeFakeClient();
-      const r = (await OmoRouterPlugin(fakeCtx(client))) as unknown as PluginReturn;
-      const list = (await call(r.tool.omo_list as ToolDef, {})) as Array<{
+      const r = (await AgentRouterPlugin(fakeCtx(client))) as unknown as PluginReturn;
+      const list = (await call(r.tool.router_list as ToolDef, {})) as Array<{
         name: string;
         isActive: boolean;
       }>;
@@ -204,18 +202,20 @@ describe("OmoRouterPlugin", () => {
     }
   });
 
-  it("omo_use switches and fires toast", async () => {
-    const { cleanup } = setup();
+  it("router_use rewrites frontmatter and fires toast", async () => {
+    const { cleanup, agentsDir } = setup();
     try {
       const client = makeFakeClient();
-      const r = (await OmoRouterPlugin(fakeCtx(client))) as unknown as PluginReturn;
-      const out = (await call(r.tool.omo_use as ToolDef, {
+      const r = (await AgentRouterPlugin(fakeCtx(client))) as unknown as PluginReturn;
+      const out = (await call(r.tool.router_use as ToolDef, {
         name: "cheap",
         validate: false,
-      })) as { previous: string; current: string; restartRequired: boolean };
+      })) as { previous: string; current: string; changed: string[]; restartRequired: boolean };
       expect(out.current).toBe("cheap");
       expect(out.previous).toBe("premium");
+      expect(out.changed.sort()).toEqual(["Omni", "oracle"]);
       expect(out.restartRequired).toBe(true);
+      expect(readFileSync(path.join(agentsDir, "Omni.md"), "utf8")).toContain("model: c/three");
       expect(client.toasts).toHaveLength(1);
       expect(client.toasts[0]?.message).toMatch(/cheap/);
     } finally {
@@ -223,12 +223,12 @@ describe("OmoRouterPlugin", () => {
     }
   });
 
-  it("omo_use with unknown name returns structured error and no toast", async () => {
+  it("router_use with unknown name returns structured error and no toast", async () => {
     const { cleanup } = setup();
     try {
       const client = makeFakeClient();
-      const r = (await OmoRouterPlugin(fakeCtx(client))) as unknown as PluginReturn;
-      const out = (await call(r.tool.omo_use as ToolDef, {
+      const r = (await AgentRouterPlugin(fakeCtx(client))) as unknown as PluginReturn;
+      const out = (await call(r.tool.router_use as ToolDef, {
         name: "ghost",
         validate: false,
       })) as { error?: string };
@@ -239,14 +239,14 @@ describe("OmoRouterPlugin", () => {
     }
   });
 
-  it("omo_back undoes last switch and fires toast", async () => {
+  it("router_back undoes last switch and fires toast", async () => {
     const { cleanup } = setup();
     try {
       const client = makeFakeClient();
-      const r = (await OmoRouterPlugin(fakeCtx(client))) as unknown as PluginReturn;
-      await call(r.tool.omo_use as ToolDef, { name: "cheap", validate: false });
+      const r = (await AgentRouterPlugin(fakeCtx(client))) as unknown as PluginReturn;
+      await call(r.tool.router_use as ToolDef, { name: "cheap", validate: false });
       client.toasts.length = 0;
-      const out = (await call(r.tool.omo_back as ToolDef, {})) as {
+      const out = (await call(r.tool.router_back as ToolDef, {})) as {
         previous: string;
         current: string;
       };
@@ -257,24 +257,46 @@ describe("OmoRouterPlugin", () => {
     }
   });
 
-  it("omo_validate returns structured ok/missing", async () => {
-    const { cleanup, paths } = setup();
+  it("router_capture snapshots current models", async () => {
+    const { cleanup } = setup();
+    try {
+      const client = makeFakeClient();
+      const r = (await AgentRouterPlugin(fakeCtx(client))) as unknown as PluginReturn;
+      const out = (await call(r.tool.router_capture as ToolDef, { name: "snap" })) as {
+        name: string;
+        agents: number;
+      };
+      expect(out.name).toBe("snap");
+      expect(out.agents).toBe(2);
+      const list = (await call(r.tool.router_list as ToolDef, {})) as Array<{ name: string }>;
+      expect(list.map((x) => x.name).sort()).toEqual(["cheap", "premium", "snap"]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it("router_validate returns structured ok/missing for stacks and frontmatter", async () => {
+    const { cleanup, stacksDir } = setup();
     try {
       writeFileSync(
-        path.join(paths.stacksDir, "broken.json"),
-        JSON.stringify({
-          agents: { sisyphus: { model: "vendor-not-real/foo-bar-9000" } },
-          categories: { quick: { model: "google/gemini-3-flash-preview" } },
-        }),
+        path.join(stacksDir, "broken.json"),
+        JSON.stringify({ agents: { Omni: { model: "vendor-not-real/foo" } } }),
       );
       const client = makeFakeClient();
-      const r = (await OmoRouterPlugin(fakeCtx(client))) as unknown as PluginReturn;
-      const out = (await call(r.tool.omo_validate as ToolDef, { name: "broken" })) as {
+      const r = (await AgentRouterPlugin(fakeCtx(client))) as unknown as PluginReturn;
+      const out = (await call(r.tool.router_validate as ToolDef, { name: "broken" })) as {
         ok?: boolean;
         missing?: Array<{ path: string; modelId: string }>;
         error?: string;
       };
       expect(out.ok === false || typeof out.error === "string").toBe(true);
+
+      const live = (await call(r.tool.router_validate as ToolDef, { active: true })) as {
+        ok?: boolean;
+        checked?: number;
+      };
+      expect(live.ok).toBe(true);
+      expect(live.checked).toBe(2);
     } finally {
       cleanup();
     }

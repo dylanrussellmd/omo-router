@@ -1,6 +1,6 @@
 name: Release
 
-# Publishes @dylanrussell/omo-router to npm when a semver tag (vX.Y.Z) is pushed.
+# Publishes @dylanrussell/agent-router to npm when a semver tag (vX.Y.Z) is pushed.
 # Auth is npm Trusted Publishing via OIDC — no NPM_TOKEN secret is stored.
 # The job mints a short-lived OIDC token that npm trusts because this exact
 # repo + workflow filename is registered as a trusted publisher on npmjs.com.

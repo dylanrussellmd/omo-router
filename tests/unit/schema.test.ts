@@ -1,89 +1,96 @@
 import { describe, expect, it } from "vitest";
-import { OpencodeJsonSchema, StackFileSchema } from "../../src/core/schema.js";
+import {
+  ConfigFileSchema,
+  OpencodeJsonSchema,
+  StackFileSchema,
+  StateFileSchema,
+} from "../../src/core/schema.js";
+
+describe("StateFileSchema", () => {
+  const valid = {
+    version: 1,
+    active: "premium",
+    previousActive: null,
+    lastSwitchedAt: new Date().toISOString(),
+  };
+
+  it("accepts a valid state", () => {
+    expect(StateFileSchema.safeParse(valid).success).toBe(true);
+  });
+
+  it("rejects unknown keys (strict)", () => {
+    expect(StateFileSchema.safeParse({ ...valid, lastSnapshottedFrom: null }).success).toBe(false);
+  });
+
+  it("rejects wrong version", () => {
+    expect(StateFileSchema.safeParse({ ...valid, version: 2 }).success).toBe(false);
+  });
+
+  it("rejects empty active", () => {
+    expect(StateFileSchema.safeParse({ ...valid, active: "" }).success).toBe(false);
+  });
+});
 
 describe("StackFileSchema", () => {
-  it("rejects empty objects (no agents AND no categories)", () => {
-    const r = StackFileSchema.safeParse({});
-    expect(r.success).toBe(false);
-  });
-
-  it("accepts agents-only stacks", () => {
+  it("accepts an agents record with models", () => {
     const r = StackFileSchema.safeParse({
-      agents: { sisyphus: { model: "anthropic/claude-opus-4-7" } },
+      agents: { Omni: { model: "a/b" }, oracle: { model: "c/d" } },
     });
     expect(r.success).toBe(true);
   });
 
-  it("accepts categories-only stacks", () => {
+  it("passes unknown entry keys through", () => {
     const r = StackFileSchema.safeParse({
-      categories: { quick: { model: "google/gemini-3-flash-preview" } },
-    });
-    expect(r.success).toBe(true);
-  });
-
-  it("preserves unknown top-level keys (forward compatibility)", () => {
-    const r = StackFileSchema.safeParse({
-      $schema: "https://example.com/schema.json",
-      agents: { sisyphus: { model: "anthropic/claude-opus-4-7", variant: "max" } },
-      experimental: { future_field: true },
-      disabled_skills: ["playwright"],
+      agents: { Omni: { model: "a/b", note: "keep me" } },
     });
     expect(r.success).toBe(true);
     if (r.success) {
-      expect(r.data.$schema).toBe("https://example.com/schema.json");
-      expect(r.data.experimental).toEqual({ future_field: true });
-      expect(r.data.disabled_skills).toEqual(["playwright"]);
+      expect((r.data.agents.Omni as Record<string, unknown>).note).toBe("keep me");
     }
   });
 
-  it("preserves unknown keys inside model entries (e.g., variant, temperature)", () => {
-    const r = StackFileSchema.safeParse({
-      agents: {
-        oracle: {
-          model: "openrouter/openai/gpt-5.4",
-          variant: "high",
-          temperature: 0.2,
-          fallback_models: [{ model: "anthropic/claude-opus-4-7", variant: "max" }],
-        },
-      },
-    });
+  it("passes unknown top-level keys through", () => {
+    const r = StackFileSchema.safeParse({ $schema: "x", agents: { a: { model: "m/1" } } });
     expect(r.success).toBe(true);
-    if (r.success) {
-      const oracle = r.data.agents?.oracle as { variant: string; temperature: number };
-      expect(oracle.variant).toBe("high");
-      expect(oracle.temperature).toBe(0.2);
-    }
+    if (r.success) expect((r.data as Record<string, unknown>).$schema).toBe("x");
   });
 
-  it("rejects model entries missing the `model` string", () => {
-    const r = StackFileSchema.safeParse({
-      agents: { sisyphus: { variant: "max" } },
-    });
-    expect(r.success).toBe(false);
+  it("rejects an empty agents record", () => {
+    expect(StackFileSchema.safeParse({ agents: {} }).success).toBe(false);
+  });
+
+  it("rejects a missing agents key", () => {
+    expect(StackFileSchema.safeParse({ categories: { q: { model: "m/1" } } }).success).toBe(false);
+  });
+
+  it("rejects entries without a model", () => {
+    expect(StackFileSchema.safeParse({ agents: { a: {} } }).success).toBe(false);
+    expect(StackFileSchema.safeParse({ agents: { a: { model: "" } } }).success).toBe(false);
+  });
+});
+
+describe("ConfigFileSchema", () => {
+  it("accepts agentsDir/stacksDir", () => {
+    expect(ConfigFileSchema.safeParse({ agentsDir: "/a", stacksDir: "/s" }).success).toBe(true);
+    expect(ConfigFileSchema.safeParse({}).success).toBe(true);
+  });
+
+  it("rejects unknown keys (strict)", () => {
+    expect(ConfigFileSchema.safeParse({ liveConfigPath: "/x" }).success).toBe(false);
   });
 });
 
 describe("OpencodeJsonSchema", () => {
-  it("accepts a minimal config", () => {
-    const r = OpencodeJsonSchema.safeParse({});
-    expect(r.success).toBe(true);
-  });
-
-  it("accepts plugin array + provider.openrouter.models", () => {
+  it("reads the plugin array and preserves the rest", () => {
     const r = OpencodeJsonSchema.safeParse({
-      plugin: ["@dylanrussell/omo-router@latest", "oh-my-openagent@latest"],
-      provider: { openrouter: { models: { "openai/gpt-5.4": {} } } },
-    });
-    expect(r.success).toBe(true);
-  });
-
-  it("preserves unknown top-level keys", () => {
-    const r = OpencodeJsonSchema.safeParse({
-      $schema: "https://opencode.ai/config.json",
+      plugin: ["a", "b"],
       provider: { openrouter: { models: {} } },
-      mcp: { foo: { type: "stdio" } },
+      instructions: ["rules/x.md"],
     });
     expect(r.success).toBe(true);
-    if (r.success) expect(r.data.mcp).toEqual({ foo: { type: "stdio" } });
+    if (r.success) {
+      expect(r.data.plugin).toEqual(["a", "b"]);
+      expect((r.data as Record<string, unknown>).instructions).toEqual(["rules/x.md"]);
+    }
   });
 });

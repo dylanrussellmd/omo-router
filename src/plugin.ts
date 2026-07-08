@@ -1,20 +1,21 @@
 /**
- * opencode plugin entry for omo-router.
+ * opencode plugin entry for agent-router.
  *
  * What this exposes to opencode:
- *   - 5 tools the agent can call:
- *       omo_status   — read state.json
- *       omo_list     — list stacks
- *       omo_use      — switch stacks (fires TUI toast on success)
- *       omo_validate — check model IDs against opencode's reachable list
- *       omo_back     — undo last switch (fires TUI toast)
+ *   - 6 tools the agent can call:
+ *       router_status   — read state.json
+ *       router_list     — list stacks
+ *       router_use      — apply a stack (fires TUI toast on success)
+ *       router_capture  — snapshot current frontmatter models into a stack
+ *       router_validate — check model IDs against opencode's reachable list
+ *       router_back     — undo last switch (fires TUI toast)
  *
  *   - One log line on init noting the active stack (via client.app.log).
  *
  * What this DOES NOT do:
  *   - We never fire `tui.toast.show` from plugin init. The toast hook is only
  *     reliably callable inside event/tool handler context per opencode docs.
- *   - We never modify oh-my-openagent.json from a hook (only from tool calls).
+ *   - We never rewrite agent files from a hook (only from tool calls).
  *
  * The `tool()` helper from `@opencode-ai/plugin` wraps our `args` zod shape +
  * `execute()` into the shape opencode wants. `execute()` must return either a
@@ -24,14 +25,17 @@
 
 import { type Plugin, tool } from "@opencode-ai/plugin";
 import { resolvePathsWithConfig } from "./core/config.js";
-import { OmoError } from "./core/errors.js";
-import type { OmoPaths } from "./core/paths.js";
+import { RouterError } from "./core/errors.js";
+import { readAgentModels } from "./core/frontmatter.js";
+import type { RouterPaths } from "./core/paths.js";
+import { StackFileSchema } from "./core/schema.js";
 import {
+  applyStack,
   back as backCore,
+  captureStack,
   getActiveStackName,
   listStacks,
   readStack,
-  switchTo,
 } from "./core/stack-manager.js";
 import { validateStack } from "./core/validator.js";
 import { VERSION } from "./version.js";
@@ -76,7 +80,7 @@ async function safeToast(
   }
   await client.app
     ?.log?.({
-      body: { service: "omo-router", level: "info", message: `[toast-fallback] ${message}` },
+      body: { service: "agent-router", level: "info", message: `[toast-fallback] ${message}` },
     })
     .catch(() => {
       /* really truly silent now */
@@ -95,7 +99,7 @@ function ok(value: unknown): { output: string; metadata: Record<string, unknown>
 /** Convert one of our typed errors into a tool-friendly response. */
 function errOut(e: unknown): { output: string; metadata: { error: string } } {
   const msg =
-    e instanceof OmoError
+    e instanceof RouterError
       ? `${e.name}: ${e.message}`
       : `${(e as Error).name ?? "Error"}: ${(e as Error).message}`;
   return { output: JSON.stringify({ error: msg }, null, 2), metadata: { error: msg } };
@@ -105,21 +109,21 @@ function errOut(e: unknown): { output: string; metadata: { error: string } } {
  * plugin definition                                                          *
  * ------------------------------------------------------------------------- */
 
-export const OmoRouterPlugin: Plugin = async (ctx) => {
-  const paths: OmoPaths = await resolvePathsWithConfig();
+export const AgentRouterPlugin: Plugin = async (ctx) => {
+  const paths: RouterPaths = await resolvePathsWithConfig();
   const client = ctx.client as unknown as PluginClientLike;
 
   // Init log. Best-effort — never throw from plugin init.
   await client.app
     ?.log?.({
       body: {
-        service: "omo-router",
+        service: "agent-router",
         level: "info",
         message: "init",
         extra: {
           version: VERSION,
           active: (await getActiveStackName(paths).catch(() => null)) ?? "(none)",
-          omoHome: paths.omoHome,
+          routerHome: paths.routerHome,
         },
       },
     })
@@ -129,24 +133,26 @@ export const OmoRouterPlugin: Plugin = async (ctx) => {
 
   return {
     tool: {
-      omo_status: tool({
-        description: "Report the active omo-router stack and the names of all available stacks.",
+      router_status: tool({
+        description:
+          "Report the active agent-router stack, the current agent → model frontmatter mapping, and all available stacks.",
         args: {},
         async execute() {
           try {
-            const [active, available] = await Promise.all([
+            const [active, available, current] = await Promise.all([
               getActiveStackName(paths),
               listStacks(paths),
+              readAgentModels(paths.agentsDir),
             ]);
-            return ok({ active, available });
+            return ok({ active, available, current });
           } catch (e) {
             return errOut(e);
           }
         },
       }),
 
-      omo_list: tool({
-        description: "List all omo-router stacks with isActive flags.",
+      router_list: tool({
+        description: "List all agent-router stacks with isActive flags.",
         args: {},
         async execute() {
           try {
@@ -161,17 +167,11 @@ export const OmoRouterPlugin: Plugin = async (ctx) => {
         },
       }),
 
-      omo_use: tool({
+      router_use: tool({
         description:
-          "Switch the active omo-router stack. Validates model IDs first. Restart opencode for changes to take effect.",
+          "Apply an agent-router stack: rewrite each agent file's frontmatter model. Validates model IDs first. Restart opencode for changes to take effect.",
         args: {
-          name: tool.schema.string().describe("Stack name to switch to (see omo_list)."),
-          snapshotBack: tool.schema
-            .boolean()
-            .optional()
-            .describe(
-              "Default true. Save current oh-my-openagent.json back to its source stack first.",
-            ),
+          name: tool.schema.string().describe("Stack name to apply (see router_list)."),
           validate: tool.schema
             .boolean()
             .optional()
@@ -179,18 +179,17 @@ export const OmoRouterPlugin: Plugin = async (ctx) => {
         },
         async execute(args) {
           try {
-            const r = await switchTo(paths, args.name, {
-              snapshotBack: args.snapshotBack ?? true,
+            const r = await applyStack(paths, args.name, {
               validate: args.validate ?? true,
             });
             await safeToast(
               client,
-              `omo-router: switched to "${r.current}". Restart opencode for change to take effect.`,
+              `agent-router: switched to "${r.current}". Restart opencode for change to take effect.`,
             );
             return ok({
               previous: r.previous,
               current: r.current,
-              snapshottedFrom: r.snapshottedFrom,
+              changed: r.changed,
               restartRequired: true,
             });
           } catch (e) {
@@ -199,28 +198,52 @@ export const OmoRouterPlugin: Plugin = async (ctx) => {
         },
       }),
 
-      omo_validate: tool({
+      router_capture: tool({
         description:
-          "Validate that every model ID in a stack (or the live config) is reachable through current opencode auth.",
+          "Snapshot the current agent → model frontmatter mapping into a named agent-router stack.",
+        args: {
+          name: tool.schema.string().describe("Name for the new stack."),
+          force: tool.schema
+            .boolean()
+            .optional()
+            .describe("Default false. Overwrite an existing stack of the same name."),
+        },
+        async execute(args) {
+          try {
+            const r = await captureStack(paths, args.name, { force: args.force ?? false });
+            return ok({ name: r.name, path: r.path, agents: r.agents });
+          } catch (e) {
+            return errOut(e);
+          }
+        },
+      }),
+
+      router_validate: tool({
+        description:
+          "Validate that every model ID in a stack (or the current frontmatter) is reachable through current opencode auth.",
         args: {
           name: tool.schema.string().optional().describe("Stack name; omit when using `active`."),
           active: tool.schema
             .boolean()
             .optional()
-            .describe("Validate the live oh-my-openagent.json instead."),
+            .describe("Validate the models currently in agent frontmatter instead."),
         },
         async execute(args) {
           try {
             let stack: unknown;
             if (args.active) {
-              const { readFile } = await import("node:fs/promises");
-              stack = JSON.parse(await readFile(paths.liveConfigPath, "utf8"));
+              const models = await readAgentModels(paths.agentsDir);
+              stack = {
+                agents: Object.fromEntries(
+                  Object.entries(models).map(([k, model]) => [k, { model }]),
+                ),
+              };
             } else if (args.name) {
               stack = await readStack(paths, args.name);
             } else {
               return errOut(new Error("Pass `name` or `active: true`."));
             }
-            const r = await validateStack(stack as Parameters<typeof validateStack>[0]);
+            const r = await validateStack(StackFileSchema.parse(stack));
             return ok({
               ok: r.ok,
               checked: r.checked,
@@ -232,9 +255,9 @@ export const OmoRouterPlugin: Plugin = async (ctx) => {
         },
       }),
 
-      omo_back: tool({
+      router_back: tool({
         description:
-          "Undo the last N omo-router switches (default 1). Restart opencode for changes to take effect.",
+          "Undo the last N agent-router switches (default 1). Restart opencode for changes to take effect.",
         args: {
           n: tool.schema.number().optional().describe("How many switches to undo."),
         },
@@ -243,7 +266,7 @@ export const OmoRouterPlugin: Plugin = async (ctx) => {
             const r = await backCore(paths, args.n ?? 1);
             await safeToast(
               client,
-              `omo-router: reverted to "${r.current}". Restart opencode for change to take effect.`,
+              `agent-router: reverted to "${r.current}". Restart opencode for change to take effect.`,
             );
             return ok({
               previous: r.previous,
@@ -259,4 +282,4 @@ export const OmoRouterPlugin: Plugin = async (ctx) => {
   };
 };
 
-export default OmoRouterPlugin;
+export default AgentRouterPlugin;
