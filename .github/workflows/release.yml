@@ -69,5 +69,15 @@ jobs:
 
       # No --otp, no NODE_AUTH_TOKEN: OIDC + modern npm authenticate silently.
       # --provenance attaches a signed build-provenance attestation (public repos).
+      # Skip when the version is already on the registry (e.g. the first
+      # release was published manually before OIDC registration) so re-pushed
+      # tags stay green instead of failing on EPUBLISHCONFLICT.
       - name: publish
-        run: npm publish --access public --provenance
+        run: |
+          PKG_NAME="$(node -p "require('./package.json').name")"
+          PKG_VERSION="$(node -p "require('./package.json').version")"
+          if npm view "${PKG_NAME}@${PKG_VERSION}" version >/dev/null 2>&1; then
+            echo "${PKG_NAME}@${PKG_VERSION} already on the registry — skipping publish"
+            exit 0
+          fi
+          npm publish --access public --provenance
