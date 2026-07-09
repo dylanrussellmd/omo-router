@@ -26,6 +26,7 @@ describe("readStackSnapshot", () => {
     const snap = await readStackSnapshot(paths);
     expect(snap.active).toBeNull();
     expect(snap.stacks).toEqual([]);
+    expect(snap.agents).toEqual([]);
   });
 
   it("reads active + stack names", async () => {
@@ -45,6 +46,54 @@ describe("readStackSnapshot", () => {
     expect(snap.active).toBe("premium");
     expect(snap.stacks).toEqual(["premium"]);
     expect(snap.key).toBe(snapshotKey("premium", ["premium"]));
+  });
+
+  it("reads the active stack's agent → model assignments, sorted by agent", async () => {
+    const paths = resolvePaths({ routerHome: path.join(root, "router"), env: {} });
+    mkdirSync(paths.stacksDir, { recursive: true });
+    writeFileSync(
+      path.join(paths.stacksDir, "work.json"),
+      JSON.stringify({
+        agents: {
+          explorer: { model: "claude-opus" },
+          build: { model: "gpt-5" },
+        },
+      }),
+    );
+    writeFileSync(
+      paths.statePath,
+      JSON.stringify({
+        version: 1,
+        active: "work",
+        previousActive: null,
+        lastSwitchedAt: new Date().toISOString(),
+      }),
+    );
+    const snap = await readStackSnapshot(paths);
+    expect(snap.agents).toEqual([
+      { agent: "build", model: "gpt-5" },
+      { agent: "explorer", model: "claude-opus" },
+    ]);
+    // key incorporates agents so edits are detected by the poller
+    expect(snap.key).toBe(snapshotKey("work", ["work"], snap.agents));
+  });
+
+  it("degrades agents to empty when the active stack file is unreadable", async () => {
+    const paths = resolvePaths({ routerHome: path.join(root, "router"), env: {} });
+    mkdirSync(paths.stacksDir, { recursive: true });
+    writeFileSync(path.join(paths.stacksDir, "broken.json"), "{not json");
+    writeFileSync(
+      paths.statePath,
+      JSON.stringify({
+        version: 1,
+        active: "broken",
+        previousActive: null,
+        lastSwitchedAt: new Date().toISOString(),
+      }),
+    );
+    const snap = await readStackSnapshot(paths);
+    expect(snap.active).toBe("broken");
+    expect(snap.agents).toEqual([]);
   });
 });
 
@@ -67,7 +116,7 @@ describe("createSidebarPoller", () => {
   }
 
   function snap(active: string | null, stacks: string[]): StackSnapshot {
-    return { active, stacks, key: snapshotKey(active, stacks) };
+    return { active, stacks, agents: [], key: snapshotKey(active, stacks) };
   }
 
   it("fires onChange only when the key changes", async () => {

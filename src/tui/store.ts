@@ -9,16 +9,29 @@
  */
 
 import type { RouterPaths } from "../core/paths.js";
-import { getActiveStackName, listStacks } from "../core/stack-manager.js";
+import { getActiveStackName, listStacks, readStack } from "../core/stack-manager.js";
+
+export interface AgentAssignment {
+  readonly agent: string;
+  readonly model: string;
+}
 
 export interface StackSnapshot {
   readonly active: string | null;
   readonly stacks: readonly string[];
+  /** Agent → model entries of the active stack, sorted by agent name. Empty when no active stack. */
+  readonly agents: readonly AgentAssignment[];
   readonly key: string;
 }
 
-export function snapshotKey(active: string | null, stacks: readonly string[]): string {
-  return `${active ?? "\u0000"}|${stacks.join(",")}`;
+export function snapshotKey(
+  active: string | null,
+  stacks: readonly string[],
+  agents: readonly AgentAssignment[] = [],
+): string {
+  return `${active ?? "\u0000"}|${stacks.join(",")}|${agents
+    .map((a) => `${a.agent}=${a.model}`)
+    .join(",")}`;
 }
 
 /** Error-tolerant read: never throws, degrades to `(none)` + empty list. */
@@ -27,7 +40,18 @@ export async function readStackSnapshot(paths: RouterPaths): Promise<StackSnapsh
     getActiveStackName(paths).catch(() => null),
     listStacks(paths).catch(() => [] as string[]),
   ]);
-  return { active, stacks, key: snapshotKey(active, stacks) };
+  let agents: AgentAssignment[] = [];
+  if (active !== null) {
+    try {
+      const stack = await readStack(paths, active);
+      agents = Object.entries(stack.agents)
+        .map(([agent, entry]) => ({ agent, model: entry.model }))
+        .sort((a, b) => a.agent.localeCompare(b.agent));
+    } catch {
+      /* active stack unreadable — degrade to empty agent list */
+    }
+  }
+  return { active, stacks, agents, key: snapshotKey(active, stacks, agents) };
 }
 
 export interface SidebarPollerOptions {

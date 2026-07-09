@@ -1,28 +1,45 @@
 import { describe, expect, it } from "vitest";
 import { type SolidRuntime, materialize } from "../../src/tui/render.js";
-import { type StackSnapshot, snapshotKey } from "../../src/tui/store.js";
+import { type AgentAssignment, type StackSnapshot, snapshotKey } from "../../src/tui/store.js";
 import { buildSidebarNodes, restartRequired } from "../../src/tui/view.js";
 
-const snap = (active: string | null, stacks: string[] = []): StackSnapshot => ({
+const AGENTS: AgentAssignment[] = [];
+
+const snap = (
+  active: string | null,
+  stacks: string[] = [],
+  agents: AgentAssignment[] = AGENTS,
+): StackSnapshot => ({
   active,
   stacks,
-  key: snapshotKey(active, stacks),
+  agents,
+  key: snapshotKey(active, stacks, agents),
 });
 
 describe("buildSidebarNodes", () => {
-  it("renders title, active stack, and stack count", () => {
+  it("lists every stack — active checked green, inactive muted unchecked", () => {
     const nodes = buildSidebarNodes(snap("premium", ["cheap", "premium"]), {
       bootActive: "premium",
     });
     const texts = nodes.map((n) => n.text);
-    expect(texts[0]).toBe("Agent Stack");
+    expect(texts[0]).toBe("Agent Stacks");
     expect(texts).toContain(" ▣ premium");
-    expect(texts).toContain(" 2 stacks");
+    expect(texts).toContain(" □ cheap");
+    // stack count summary was replaced by the per-stack list
+    expect(texts.some((t) => /^ \d+ stacks?$/.test(t ?? ""))).toBe(false);
   });
 
   it("shows (none) when uninitialized", () => {
     const nodes = buildSidebarNodes(snap(null), { bootActive: null });
     expect(nodes.map((n) => n.text)).toContain(" ▣ (none)");
+  });
+
+  it("lists all stacks as muted unchecked when no active stack is set", () => {
+    const nodes = buildSidebarNodes(snap(null, ["a", "b"]), { bootActive: null });
+    const texts = nodes.map((n) => n.text);
+    expect(texts).toContain(" □ a");
+    expect(texts).toContain(" □ b");
+    expect(texts.some((t) => t?.startsWith(" ▣ "))).toBe(false);
   });
 
   it("adds restart badge only when active differs from boot", () => {
@@ -33,16 +50,48 @@ describe("buildSidebarNodes", () => {
     expect(switched.map((n) => n.text)).toContain(" ⟳ restart required");
   });
 
-  it("uses singular form for one stack", () => {
-    const nodes = buildSidebarNodes(snap("a", ["a"]), { bootActive: "a" });
-    expect(nodes.map((n) => n.text)).toContain(" 1 stack");
+  it("applies theme colors — active green, inactive muted, header text, warning", () => {
+    const theme = { text: "TEXT", textMuted: "MUTED", warning: "WARN", success: "OK" };
+    const nodes = buildSidebarNodes(snap("b", ["a", "b"]), { bootActive: "a", theme });
+    expect(nodes[0].props.fg).toBe("TEXT");
+    expect(nodes.find((n) => n.text === " ▣ b")?.props.fg).toBe("OK");
+    expect(nodes.find((n) => n.text === " □ a")?.props.fg).toBe("MUTED");
+    expect(nodes.find((n) => n.text === " ⟳ restart required")?.props.fg).toBe("WARN");
   });
 
-  it("applies theme colors when provided", () => {
-    const theme = { text: "TEXT", textMuted: "MUTED", warning: "WARN", success: "OK" };
-    const nodes = buildSidebarNodes(snap("b", ["b"]), { bootActive: "a", theme });
-    expect(nodes[0].props.fg).toBe("TEXT");
-    expect(nodes.find((n) => n.text === " ⟳ restart required")?.props.fg).toBe("WARN");
+  it("renders a Current Stack header followed by each agent → model line", () => {
+    const agents = [
+      { agent: "build", model: "gpt-5" },
+      { agent: "explorer", model: "claude-opus" },
+    ];
+    const nodes = buildSidebarNodes(snap("s", ["s"], agents), { bootActive: "s" });
+    const headerIdx = nodes.findIndex((n) => n.text === "Current Stack");
+    expect(headerIdx).toBeGreaterThan(0);
+    // Each agent line is a row box: "• " + "agent → model"
+    const line1 = nodes[headerIdx + 1];
+    const line2 = nodes[headerIdx + 2];
+    expect(line1.kind).toBe("box");
+    expect(line1.children?.map((c) => c.text)).toEqual(["• ", "build → gpt-5"]);
+    expect(line2.children?.map((c) => c.text)).toEqual(["• ", "explorer → claude-opus"]);
+  });
+
+  it("shows (none) under Current Stack when the active stack has no agents", () => {
+    const nodes = buildSidebarNodes(snap(null), { bootActive: null });
+    const texts = nodes.map((n) => n.text);
+    const headerIdx = texts.indexOf("Current Stack");
+    expect(texts[headerIdx + 1]).toBe("• (none)");
+  });
+
+  it("colors the bullet green and the agent → model text muted", () => {
+    const theme = { text: "TEXT", textMuted: "MUTED", success: "OK" };
+    const agents = [{ agent: "build", model: "gpt-5" }];
+    const nodes = buildSidebarNodes(snap("s", ["s"], agents), { bootActive: "s", theme });
+    const headerIdx = nodes.findIndex((n) => n.text === "Current Stack");
+    const line = nodes[headerIdx + 1];
+    expect(line.kind).toBe("box");
+    expect(line.children?.[0]?.props.fg).toBe("OK");
+    expect(line.children?.[1]?.props.fg).toBe("MUTED");
+    expect(nodes.find((n) => n.text === "Current Stack")?.props.fg).toBe("TEXT");
   });
 });
 
@@ -88,10 +137,11 @@ describe("materialize", () => {
 
     expect(root.tag).toBe("box");
     expect(root.props.flexDirection).toBe("column");
-    expect(root.children).toHaveLength(3);
+    // Agent Stacks header + active stack line + Current Stack header + (none)
+    expect(root.children).toHaveLength(4);
     const first = root.children[0] as FakeNode;
     expect(first.tag).toBe("text");
-    expect(first.children).toContain("Agent Stack");
+    expect(first.children).toContain("Agent Stacks");
   });
 
   it("skips undefined props", () => {

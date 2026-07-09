@@ -39,16 +39,43 @@ export function restartRequired(snapshot: StackSnapshot, ctx: SidebarContext): b
 export function buildSidebarNodes(snapshot: StackSnapshot, ctx: SidebarContext): ViewNode[] {
   const theme = ctx.theme ?? {};
   const nodes: ViewNode[] = [
-    text("Agent Stack", { fg: theme.text, attributes: TEXT_ATTR_BOLD }),
-    text(` ▣ ${snapshot.active ?? "(none)"}`, { fg: theme.success }),
+    text("Agent Stacks", { fg: theme.text, attributes: TEXT_ATTR_BOLD }),
   ];
+
+  if (snapshot.stacks.length === 0) {
+    // Uninitialized: nothing on disk, surface the empty state.
+    nodes.push(text(" ▣ (none)", { fg: theme.success }));
+  } else {
+    for (const name of snapshot.stacks) {
+      const isActive = name === snapshot.active;
+      nodes.push(
+        text(`${isActive ? " ▣ " : " □ "}${name}`, {
+          fg: isActive ? theme.success : theme.textMuted,
+        }),
+      );
+    }
+  }
+
+  // Current Stack — the active stack's agent → model assignments.
+  nodes.push(text("Current Stack", { fg: theme.text, attributes: TEXT_ATTR_BOLD }));
+  if (snapshot.agents.length === 0) {
+    nodes.push(text("• (none)", { fg: theme.success }));
+  } else {
+    for (const { agent, model } of snapshot.agents) {
+      // Row box: green bullet + muted "agent → model" on one line.
+      nodes.push({
+        kind: "box",
+        props: { flexDirection: "row" },
+        children: [
+          text("• ", { fg: theme.success }),
+          text(`${agent} → ${model}`, { fg: theme.textMuted }),
+        ],
+      });
+    }
+  }
+
   if (restartRequired(snapshot, ctx)) {
     nodes.push(text(" ⟳ restart required", { fg: theme.warning }));
   }
-  nodes.push(
-    text(` ${snapshot.stacks.length} stack${snapshot.stacks.length === 1 ? "" : "s"}`, {
-      fg: theme.textMuted,
-    }),
-  );
   return nodes;
 }
