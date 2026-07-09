@@ -15,7 +15,7 @@ describe("buildSidebarNodes", () => {
       bootActive: "premium",
     });
     const texts = nodes.map((n) => n.text);
-    expect(texts[0]).toBe("agent-router");
+    expect(texts[0]).toBe("Agent Stack");
     expect(texts).toContain(" ▣ premium");
     expect(texts).toContain(" 2 stacks");
   });
@@ -39,9 +39,9 @@ describe("buildSidebarNodes", () => {
   });
 
   it("applies theme colors when provided", () => {
-    const theme = { textMuted: "MUTED", warning: "WARN", success: "OK" };
+    const theme = { text: "TEXT", textMuted: "MUTED", warning: "WARN", success: "OK" };
     const nodes = buildSidebarNodes(snap("b", ["b"]), { bootActive: "a", theme });
-    expect(nodes[0].props.fg).toBe("MUTED");
+    expect(nodes[0].props.fg).toBe("TEXT");
     expect(nodes.find((n) => n.text === " ⟳ restart required")?.props.fg).toBe("WARN");
   });
 });
@@ -91,7 +91,7 @@ describe("materialize", () => {
     expect(root.children).toHaveLength(3);
     const first = root.children[0] as FakeNode;
     expect(first.tag).toBe("text");
-    expect(first.children).toContain("agent-router");
+    expect(first.children).toContain("Agent Stack");
   });
 
   it("skips undefined props", () => {
