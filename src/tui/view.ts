@@ -38,9 +38,7 @@ export function restartRequired(snapshot: StackSnapshot, ctx: SidebarContext): b
 
 export function buildSidebarNodes(snapshot: StackSnapshot, ctx: SidebarContext): ViewNode[] {
   const theme = ctx.theme ?? {};
-  const nodes: ViewNode[] = [
-    text("Agent Stacks", { fg: theme.text, attributes: TEXT_ATTR_BOLD }),
-  ];
+  const nodes: ViewNode[] = [text("Agent Stacks", { fg: theme.text, attributes: TEXT_ATTR_BOLD })];
 
   if (snapshot.stacks.length === 0) {
     // Uninitialized: nothing on disk, surface the empty state.
