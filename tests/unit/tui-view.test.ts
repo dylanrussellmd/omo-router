@@ -67,12 +67,12 @@ describe("buildSidebarNodes", () => {
     const nodes = buildSidebarNodes(snap("s", ["s"], agents), { bootActive: "s" });
     const headerIdx = nodes.findIndex((n) => n.text === "Current Stack");
     expect(headerIdx).toBeGreaterThan(0);
-    // Each agent line is a row box: "• " + "agent → model"
+    // Each agent line is a row box: bullet + "agent → model"
     const line1 = nodes[headerIdx + 1];
     const line2 = nodes[headerIdx + 2];
     expect(line1.kind).toBe("box");
-    expect(line1.children?.map((c) => c.text)).toEqual(["• ", "build → gpt-5"]);
-    expect(line2.children?.map((c) => c.text)).toEqual(["• ", "explorer → claude-opus"]);
+    expect(line1.children?.map((c) => c.text)).toEqual(["•", "build → gpt-5"]);
+    expect(line2.children?.map((c) => c.text)).toEqual(["•", "explorer → claude-opus"]);
   });
 
   it("shows (none) under Current Stack when the active stack has no agents", () => {
@@ -82,14 +82,17 @@ describe("buildSidebarNodes", () => {
     expect(texts[headerIdx + 1]).toBe("• (none)");
   });
 
-  it("colors the bullet green and the agent → model text muted", () => {
+  it("colors the bullet green (via style.fg) and the agent → model text muted", () => {
     const theme = { text: "TEXT", textMuted: "MUTED", success: "OK" };
     const agents = [{ agent: "build", model: "gpt-5" }];
     const nodes = buildSidebarNodes(snap("s", ["s"], agents), { bootActive: "s", theme });
     const headerIdx = nodes.findIndex((n) => n.text === "Current Stack");
     const line = nodes[headerIdx + 1];
     expect(line.kind).toBe("box");
-    expect(line.children?.[0]?.props.fg).toBe("OK");
+    // bullet: flexShrink:0, green via style.fg (mirrors opencode LSP pattern)
+    expect(line.children?.[0]?.props.flexShrink).toBe(0);
+    expect(line.children?.[0]?.props.style).toEqual({ fg: "OK" });
+    // label: muted
     expect(line.children?.[1]?.props.fg).toBe("MUTED");
     expect(nodes.find((n) => n.text === "Current Stack")?.props.fg).toBe("TEXT");
   });

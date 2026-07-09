@@ -57,15 +57,16 @@ export function buildSidebarNodes(snapshot: StackSnapshot, ctx: SidebarContext):
   // Current Stack — the active stack's agent → model assignments.
   nodes.push(text("Current Stack", { fg: theme.text, attributes: TEXT_ATTR_BOLD }));
   if (snapshot.agents.length === 0) {
-    nodes.push(text("• (none)", { fg: theme.success }));
+    nodes.push(text("• (none)", { fg: theme.textMuted }));
   } else {
     for (const { agent, model } of snapshot.agents) {
-      // Row box: green bullet + muted "agent → model" on one line.
+      // Row box mirroring opencode's LSP sidebar: green bullet (flexShrink:0)
+      // + muted label, separated by gap:1.
       nodes.push({
         kind: "box",
-        props: { flexDirection: "row" },
+        props: { flexDirection: "row", gap: 1 },
         children: [
-          text("• ", { fg: theme.success }),
+          text("•", { flexShrink: 0, style: { fg: theme.success } }),
           text(`${agent} → ${model}`, { fg: theme.textMuted }),
         ],
       });
